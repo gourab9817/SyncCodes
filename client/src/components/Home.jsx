@@ -195,6 +195,7 @@ function CodeEditor() {
             made <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 to-purple-600 inline-block min-w-20">{typedText}</span>
             <span className="animate-blink">|</span>
           </h1>
+          
           <p className={`text-xl ${darkMode ? "text-gray-400" : "text-gray-600"} max-w-3xl mx-auto mb-10 animate-fadeIn`}>
             Share your code instantly, collaborate with anyone, anywhere. No sign up required – just create a session and share the link.
           </p>
