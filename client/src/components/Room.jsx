@@ -294,7 +294,7 @@ const RoomPage = () => {
         <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 p-4">
           <div className="max-w-7xl mx-auto flex justify-between items-center">
             <div className="flex items-center space-x-3">
-              <span className="font-bold text-blue-600 dark:text-blue-400 text-lg">CodeCollab</span>
+              <span className="font-bold text-blue-600 dark:text-blue-400 text-lg">SyncCodes</span>
               <div className="hidden md:flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-300">
                 <span>Session:</span>
                 <code className="bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">{roomId.substring(0, 8)}...</code>
