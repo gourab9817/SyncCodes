@@ -46,7 +46,7 @@ const Navbar = () => {
     <nav className="flex items-center justify-between w-full max-w-6xl mx-auto py-4 px-4">
       <div className="text-purple-500 dark:text-purple-400 font-bold text-2xl flex items-center">
         <span className="text-gray-800 dark:text-white mr-1">&lt;/&gt;</span> 
-        {window.location.pathname.includes('lobby') ? 'SyncCodes' : 'CodeCollab'}
+        {window.location.pathname.includes('lobby') ? 'SyncCodes' : 'SyncCodes'}
       </div>
       
       <button 
@@ -377,7 +377,7 @@ const Lobby = () => {
       
       {/* Features Section */}
       <div className="w-full max-w-6xl mt-16">
-        <h2 className="text-2xl font-bold text-gray-800 dark:text-white text-center mb-10">Why Choose CodeCollab?</h2>
+        <h2 className="text-2xl font-bold text-gray-800 dark:text-white text-center mb-10">Why Choose SyncCodes?</h2>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg">
@@ -424,7 +424,7 @@ const Home = () => {
       
       <div className="flex flex-col items-center justify-center flex-grow w-full">
         <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl p-10 mb-8 w-full max-w-4xl text-center">
-          <h1 className="text-4xl font-bold text-white mb-4">Welcome to CodeCollab</h1>
+          <h1 className="text-4xl font-bold text-white mb-4">Welcome to SyncCodes</h1>
           <p className="text-white text-lg mb-8">Create or join collaborative coding sessions with real-time video meetings</p>
           
           <div className="flex justify-center gap-4">
