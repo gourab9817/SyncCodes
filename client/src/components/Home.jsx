@@ -389,7 +389,7 @@ function CodeEditor() {
       </section>
 
       {/* Stats */}
-      <section className={`py-16 ${darkMode ? "bg-gray-950" : "bg-gray-100"} transition-colors duration-300 animate-on-scroll`} id="stats-section">
+      {/* <section className={`py-16 ${darkMode ? "bg-gray-950" : "bg-gray-100"} transition-colors duration-300 animate-on-scroll`} id="stats-section">
         <div className="container mx-auto px-4 text-center">
           <h2 className={`text-3xl font-bold mb-16 ${darkMode ? "text-white" : "text-gray-800"}`}>
             <span className="relative inline-block">
@@ -440,7 +440,7 @@ function CodeEditor() {
             </button>
           </div>
         </div>
-      </section>
+      </section> */}
 
       {/* Footer */}
       <footer className={`${darkMode ? "bg-gray-900 border-gray-800" : "bg-gray-50 border-gray-200"} py-16 border-t transition-colors duration-300`}>

@@ -8,7 +8,7 @@ import CodeMirror from "codemirror";
 import "codemirror/mode/python/python";
 import "codemirror/mode/clike/clike";
 import toast, { Toaster } from "react-hot-toast";
-import { Play } from "lucide-react";
+import { Play, ChevronDown } from "lucide-react";
 import { executeCode } from "./ExecuteCode";
 import {
   LANGUAGE_VERSIONS,
@@ -169,15 +169,19 @@ function Editor({ socket, roomId, onCodeChange }) {
         <Button
           variant="contained"
           sx={{
-            backgroundColor: "#22c55e",
+            backgroundColor: "#7e57c2",
             marginTop: "4px",
-            color: "black",
-            border: "#22c55e",
-            "&:hover": { backgroundColor: "#22c55f" },
+            color: "white",
+            border: "none",
+            "&:hover": { backgroundColor: "#6a45b9" },
+            display: "flex",
+            alignItems: "center",
+            gap: "4px"
           }}
           onClick={handleClickOpen}
         >
           {selectedLanguage || "Select Language"}
+          <ChevronDown size={16} />
         </Button>
         <Dialog open={open} onClose={handleClose}>
           <DialogTitle>Select a Language</DialogTitle>
@@ -202,11 +206,12 @@ function Editor({ socket, roomId, onCodeChange }) {
             <Button onClick={handleClose}>Close</Button>
           </DialogActions>
         </Dialog>
+        
         <p className="text-black font-bold m-2">Execute Code:</p>
         <Play
           onClick={handleExecuteCode}
           size={"2rem"}
-          className="bg-green-500 border rounded-full p-1"
+          className="bg-indigo-600 hover:bg-indigo-700 border rounded-full p-1 text-white cursor-pointer"
         />
       </div>
       <p className="text-black">Output:</p>

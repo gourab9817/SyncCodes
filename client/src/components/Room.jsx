@@ -285,11 +285,10 @@ const RoomPage = () => {
       }
     });
   };
-
   return (
     <div className={darkMode ? "dark" : ""}>
       <Toaster />
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300 overflow-auto">
         {/* Header */}
         <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 p-4">
           <div className="max-w-7xl mx-auto flex justify-between items-center">
@@ -324,134 +323,234 @@ const RoomPage = () => {
         </header>
 
         {/* Main Content */}
-        <div className="max-w-7xl mx-auto p-4 flex">
-          {/* Video Grid */}
-          <div
-            className={`transition-all duration-300 ${
-              isEditorOpen ? "w-3/5" : "w-full"
-            }`}
-          >
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-[calc(100vh-8rem)]">
-              {/* My Video */}
-              <div className="relative overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700">
-                <div className="absolute top-4 left-4 bg-black/50 text-white px-2 py-1 rounded-md text-sm z-10">
-                  {email} (You)
-                </div>
-                {myStream && (
-                  <>
-                    {!isVideoOff ? (
-                      <ReactPlayer
-                        playing
-                        muted={isMuted}
-                        height="100%"
-                        width="100%"
-                        url={myStream}
-                        className="rounded-lg"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex justify-center items-center bg-gray-100 dark:bg-gray-700">
-                        <div className="flex flex-col items-center">
-                          <div className="w-24 h-24 rounded-full bg-blue-500 dark:bg-blue-600 flex items-center justify-center text-white text-3xl">
-                            {email[0].toUpperCase()}
+        <div className="max-w-7xl mx-auto p-4">
+          {/* Layout changes based on isEditorOpen state */}
+          <div className={`flex ${isEditorOpen ? "flex-row" : "flex-col"} w-full transition-all duration-300`}>
+            {/* Video Feeds */}
+            <div className={`${isEditorOpen ? "w-[350px] mr-4" : "w-full"} transition-all duration-300`}>
+              {isEditorOpen ? (
+                // Video Column Layout when editor is open
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 h-[calc(100vh-9rem)]">
+                  <div className="p-3 border-b border-gray-200 dark:border-gray-700 flex items-center">
+                    <Camera className="text-gray-600 dark:text-gray-300 mr-2" size={18} />
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Video Feeds</span>
+                  </div>
+                  <div className="space-y-3 p-3 overflow-auto" style={{ height: "calc(100% - 50px)" }}>
+                    {/* My Video */}
+                    <div className="rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-700">
+                      <div className="p-1.5 bg-gray-700 text-white text-xs">
+                        {email} (You)
+                      </div>
+                      <div className="h-44">
+                        {myStream && (
+                          <>
+                            {!isVideoOff ? (
+                              <ReactPlayer
+                                playing
+                                muted={isMuted}
+                                height="100%"
+                                width="100%"
+                                url={myStream}
+                              />
+                            ) : (
+                              <div className="w-full h-full flex justify-center items-center">
+                                <div className="flex flex-col items-center">
+                                  <div className="w-16 h-16 rounded-full bg-blue-500 dark:bg-blue-600 flex items-center justify-center text-white text-2xl">
+                                    {email[0].toUpperCase()}
+                                  </div>
+                                  <span className="mt-1 text-sm text-gray-600 dark:text-gray-300">Camera Off</span>
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+                        {!myStream && (
+                          <div className="w-full h-full flex justify-center items-center">
+                            <span className="text-sm text-gray-500 dark:text-gray-400">Initializing camera...</span>
                           </div>
-                          <span className="mt-2 text-gray-600 dark:text-gray-300">Camera Off</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Remote Video */}
+                    {remoteSocketId ? (
+                      <div className="rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-700">
+                        <div className="p-1.5 bg-gray-700 text-white text-xs">
+                          {remoteEmail}
+                        </div>
+                        <div className="h-44">
+                          {remoteStream && (
+                            <>
+                              {!remoteVideoOff ? (
+                                <ReactPlayer
+                                  playing
+                                  height="100%"
+                                  width="100%"
+                                  url={remoteStream}
+                                />
+                              ) : (
+                                <div className="w-full h-full flex justify-center items-center">
+                                  <div className="flex flex-col items-center">
+                                    <div className="w-16 h-16 rounded-full bg-purple-500 dark:bg-purple-600 flex items-center justify-center text-white text-2xl">
+                                      {remoteEmail[0].toUpperCase()}
+                                    </div>
+                                    <span className="mt-1 text-sm text-gray-600 dark:text-gray-300">Camera Off</span>
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          )}
+                          {!remoteStream && (
+                            <div className="w-full h-full flex justify-center items-center">
+                              <span className="text-sm text-gray-500 dark:text-gray-400">Waiting for peer...</span>
+                            </div>
+                          )}
                         </div>
                       </div>
-                    )}
-                  </>
-                )}
-                {!myStream && (
-                  <div className="w-full h-full flex justify-center items-center bg-gray-100 dark:bg-gray-700">
-                    <span className="text-gray-500 dark:text-gray-400">Initializing camera...</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Remote Video */}
-              {remoteSocketId ? (
-                <div className="relative overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700">
-                  <div className="absolute top-4 left-4 bg-black/50 text-white px-2 py-1 rounded-md text-sm z-10">
-                    {remoteEmail}
-                  </div>
-                  {remoteStream && (
-                    <>
-                      {!remoteVideoOff ? (
-                        <ReactPlayer
-                          playing
-                          height="100%"
-                          width="100%"
-                          url={remoteStream}
-                          className="rounded-lg"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex justify-center items-center bg-gray-100 dark:bg-gray-700">
-                          <div className="flex flex-col items-center">
-                            <div className="w-24 h-24 rounded-full bg-purple-500 dark:bg-purple-600 flex items-center justify-center text-white text-3xl">
-                              {remoteEmail[0].toUpperCase()}
-                            </div>
-                            <span className="mt-2 text-gray-600 dark:text-gray-300">Camera Off</span>
-                          </div>
+                    ) : (
+                      <div className="rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-700 flex flex-col justify-center items-center p-4 h-44">
+                        <div className="text-blue-500 dark:text-blue-400 mb-2">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                          </svg>
                         </div>
-                      )}
-                    </>
-                  )}
-                  {!remoteStream && (
-                    <div className="w-full h-full flex justify-center items-center bg-gray-100 dark:bg-gray-700">
-                      <span className="text-gray-500 dark:text-gray-400">Waiting for peer...</span>
-                    </div>
-                  )}
+                        <span className="text-sm text-gray-700 dark:text-gray-300 font-medium text-center mb-2">Waiting for someone to join</span>
+                        <button
+                          onClick={copyRoomId}
+                          className="inline-flex items-center bg-blue-500 hover:bg-blue-600 text-white text-xs px-2 py-1 rounded"
+                        >
+                          <span className="mr-1">Copy ID</span>
+                          {copied ? <CheckCheck size={12} /> : <Copy size={12} />}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
-                <div className="relative overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700">
-                  <div className="w-full h-full flex flex-col justify-center items-center bg-gray-100 dark:bg-gray-700">
-                    <div className="mb-4 text-blue-500 dark:text-blue-400">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                      </svg>
+                // Full Width Grid Layout when editor is closed
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-[calc(100vh-8rem)]">
+                  {/* My Video */}
+                  <div className="relative overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700">
+                    <div className="absolute top-4 left-4 bg-black/50 text-white px-2 py-1 rounded-md text-sm z-10">
+                      {email} (You)
                     </div>
-                    <span className="text-gray-700 dark:text-gray-300 text-center font-medium">Waiting for someone to join</span>
-                    <p className="mt-2 text-gray-500 dark:text-gray-400 text-center max-w-xs">
-                      Share your session ID with a colleague to collaborate
-                    </p>
-                    <div className="mt-4 flex items-center">
-                      <code className="bg-gray-200 dark:bg-gray-700 px-3 py-2 rounded text-sm">{roomId}</code>
-                      <button
-                        onClick={copyRoomId}
-                        className="ml-2 p-2 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded"
-                      >
-                        {copied ? <CheckCheck size={16} /> : <Copy size={16} />}
-                      </button>
-                    </div>
+                    {myStream && (
+                      <>
+                        {!isVideoOff ? (
+                          <ReactPlayer
+                            playing
+                            muted={isMuted}
+                            height="100%"
+                            width="100%"
+                            url={myStream}
+                            className="rounded-lg"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex justify-center items-center bg-gray-100 dark:bg-gray-700">
+                            <div className="flex flex-col items-center">
+                              <div className="w-24 h-24 rounded-full bg-blue-500 dark:bg-blue-600 flex items-center justify-center text-white text-3xl">
+                                {email[0].toUpperCase()}
+                              </div>
+                              <span className="mt-2 text-gray-600 dark:text-gray-300">Camera Off</span>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {!myStream && (
+                      <div className="w-full h-full flex justify-center items-center bg-gray-100 dark:bg-gray-700">
+                        <span className="text-gray-500 dark:text-gray-400">Initializing camera...</span>
+                      </div>
+                    )}
                   </div>
+
+                  {/* Remote Video */}
+                  {remoteSocketId ? (
+                    <div className="relative overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700">
+                      <div className="absolute top-4 left-4 bg-black/50 text-white px-2 py-1 rounded-md text-sm z-10">
+                        {remoteEmail}
+                      </div>
+                      {remoteStream && (
+                        <>
+                          {!remoteVideoOff ? (
+                            <ReactPlayer
+                              playing
+                              height="100%"
+                              width="100%"
+                              url={remoteStream}
+                              className="rounded-lg"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex justify-center items-center bg-gray-100 dark:bg-gray-700">
+                              <div className="flex flex-col items-center">
+                                <div className="w-24 h-24 rounded-full bg-purple-500 dark:bg-purple-600 flex items-center justify-center text-white text-3xl">
+                                  {remoteEmail[0].toUpperCase()}
+                                </div>
+                                <span className="mt-2 text-gray-600 dark:text-gray-300">Camera Off</span>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                      {!remoteStream && (
+                        <div className="w-full h-full flex justify-center items-center bg-gray-100 dark:bg-gray-700">
+                          <span className="text-gray-500 dark:text-gray-400">Waiting for peer...</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="relative overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700">
+                      <div className="w-full h-full flex flex-col justify-center items-center bg-gray-100 dark:bg-gray-700">
+                        <div className="mb-4 text-blue-500 dark:text-blue-400">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                          </svg>
+                        </div>
+                        <span className="text-gray-700 dark:text-gray-300 text-center font-medium">Waiting for someone to join</span>
+                        <p className="mt-2 text-gray-500 dark:text-gray-400 text-center max-w-xs">
+                          Share your session ID with a colleague to collaborate
+                        </p>
+                        <div className="mt-4 flex items-center">
+                          <code className="bg-gray-200 dark:bg-gray-700 px-3 py-2 rounded text-sm">{roomId}</code>
+                          <button
+                            onClick={copyRoomId}
+                            className="ml-2 p-2 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded"
+                          >
+                            {copied ? <CheckCheck size={16} /> : <Copy size={16} />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Code Editor Panel */}
-          {isEditorOpen && (
-            <div className="w-2/5 border-l border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 h-[calc(100vh-8rem)] relative">
-              <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex justify-between items-center">
-                <h2 className="font-semibold text-gray-800 dark:text-gray-200">Code Editor</h2>
-                <div className="flex items-center space-x-2">
-                  <button
-                    className="p-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded text-gray-700 dark:text-gray-300"
-                    onClick={() => setIsEditorOpen(false)}
-                  >
-                    <X size={18} />
-                  </button>
+            {/* Code Editor Panel */}
+            {isEditorOpen && (
+              <div className="flex-grow">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 h-[calc(100vh-9rem)] overflow-auto">
+                  <div className="p-3 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                    <h2 className="font-semibold text-gray-800 dark:text-gray-200">Code Editor</h2>
+                    <button
+                      className="p-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded text-gray-700 dark:text-gray-300"
+                      onClick={() => setIsEditorOpen(false)}
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                  <div className="h-[calc(100%-3rem)]">
+                    <Editor
+                      roomId={roomId}
+                      socket={socket}
+                      onCodeChange={(code) => setCodeRef(code)}
+                      darkMode={darkMode}
+                    />
+                  </div>
                 </div>
               </div>
-              <div className="p-4 h-[calc(100%-4rem)] overflow-auto">
-                <Editor
-                  roomId={roomId}
-                  socket={socket}
-                  onCodeChange={(code) => setCodeRef(code)}
-                  darkMode={darkMode}
-                />
-              </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Controls */}
