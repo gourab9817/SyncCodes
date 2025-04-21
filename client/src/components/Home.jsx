@@ -178,6 +178,16 @@ function CodeEditor() {
             </button>
           </div>
         </div>
+{/* Google tag (gtag.js) */}
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-5YCYCT27W5"></script>
+<script dangerouslySetInnerHTML={{
+  __html: `
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-5YCYCT27W5');
+  `
+}}></script>
       </header>
 
       {/* Hero Section */}
