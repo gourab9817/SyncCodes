@@ -417,10 +417,20 @@ const Home = () => {
     navigate('/lobby');
   };
   
-  return (
-    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col items-center p-4">
-      {/* Navbar with theme toggle */}
-      <Navbar />
+return (
+  <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col items-center p-4">
+    {/* Navbar with theme toggle */}
+    {/* Google tag (gtag.js) */}
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-5YCYCT27W5"></script>
+    <script dangerouslySetInnerHTML={{
+      __html: `
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'G-5YCYCT27W5');
+      `
+    }}></script>
+    <Navbar />
       
       <div className="flex flex-col items-center justify-center flex-grow w-full">
         <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl p-10 mb-8 w-full max-w-4xl text-center">
