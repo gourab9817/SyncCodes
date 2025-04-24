@@ -223,7 +223,13 @@ const Lobby = () => {
 >
   Generate Session ID <ArrowRight className="w-5 h-5" />
 </button>
-
+            <button
+              type="submit"
+              className="w-full bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white font-medium py-3 rounded-lg 
+                    flex items-center justify-center gap-2 transition-colors duration-200"
+            >
+              Create New Session <ArrowRight className="w-5 h-5" />
+            </button>
             
             {/* Session Options */}
             <div className="space-y-3">
@@ -258,13 +264,7 @@ const Lobby = () => {
               </div>
             </div>
             
-            <button
-              type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-lg 
-                    flex items-center justify-center gap-2 transition-colors duration-200"
-            >
-              Create New Session <ArrowRight className="w-5 h-5" />
-            </button>
+            
           </form>
         </div>
         
