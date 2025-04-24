@@ -216,13 +216,14 @@ const Lobby = () => {
             
             {/* Generate Room ID Button */}
             <button
-              type="button"
-              onClick={generateRoomId}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-lg 
-                    flex items-center justify-center gap-2 transition-colors duration-200"
-            >
-              Generate Session ID <ArrowRight className="w-5 h-5" />
-            </button>
+  type="button"
+  onClick={generateRoomId}
+  className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg 
+             flex items-center justify-center gap-2 transition-colors duration-200"
+>
+  Generate Session ID <ArrowRight className="w-5 h-5" />
+</button>
+
             
             {/* Session Options */}
             <div className="space-y-3">
