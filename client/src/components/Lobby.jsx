@@ -188,7 +188,7 @@ const Lobby = () => {
             {/* Session ID Input for Create */}
             <div>
               <label htmlFor="createSessionId" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Session ID
+                Session ID (Click on the Generate Session ID to create your room )
               </label>
               <div className="relative flex items-center">
                 <input
