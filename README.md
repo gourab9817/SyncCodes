@@ -58,3 +58,11 @@ SyncCodes is an advanced collaborative platform designed for real-time synchroni
     npm i
     npm run dev
 
+
+## Bugs 
+- Microphone bug ( there is a sound overlapping during the video call)
+- Session Termination ( Once the session is terminated the room id( session id ) should be vanished
+## New add on 
+- Currently it doesn't support import libraries , Looking forwoard to add the feature
+  
+
