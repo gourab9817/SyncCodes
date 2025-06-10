@@ -1,0 +1,58 @@
+Project Overview
+SyncCodes (also referred to as Syntax Sync in some docs) is a real-time collaborative coding platform. It allows multiple users to:
+Edit code together in real time (like Google Docs for code)
+Run code and see results instantly
+Video call and screen share with other collaborators
+Communicate and stay in sync while coding, debugging, and learning together
+The platform is designed for teams, students, or anyone who wants to code together remotely, with features that make collaboration seamless and interactive.
+How It Works (High-Level Flow)
+Users join a shared coding room via the web interface.
+Code changes are instantly synchronized across all users in the room.
+Users can run code in various programming languages and see the output in real time.
+Video calls and screen sharing are available for richer collaboration.
+All interactions are handled in real time using WebSockets and peer-to-peer connections.
+Technology, Frameworks, and Libraries: What They Do
+Frontend (Client)
+React.js: The main framework for building the user interface.
+Material UI, Shadcn UI, Emotion: Libraries for building and styling modern, responsive UI components.
+Tailwind CSS: Utility-first CSS framework for rapid, consistent styling.
+CodeMirror, y-codemirror.next: The in-browser code editor, supporting syntax highlighting and collaborative editing.
+Yjs, Liveblocks: Enable real-time collaborative editing using CRDTs (Conflict-free Replicated Data Types), so everyone sees the same code instantly.
+socket.io-client: Connects the frontend to the backend for real-time events (code changes, user join/leave, etc.).
+WebRTC: Handles peer-to-peer video calls and screen sharing between users.
+React Router DOM: Manages navigation and routing within the app.
+Axios: Makes HTTP requests (e.g., to run code or fetch data).
+React Hot Toast, React Toast: Show notifications and feedback to users.
+Lucide React: Provides iconography for the UI.
+React Player: For embedding and controlling media playback (if needed).
+Backend
+Node.js: The runtime environment for the backend server.
+Express.js: The web framework for handling HTTP requests and serving the frontend in production.
+socket.io: Manages real-time, bidirectional communication between the server and all connected clients (for code sync, user events, etc.).
+Axios: Used server-side to make HTTP requests to external APIs (like the code execution API).
+dotenv: Loads environment variables for configuration.
+nodemon: Automatically restarts the server during development when files change.
+APIs and External Services
+Piston API: A third-party service that compiles and runs code in many languages. The backend sends code to this API and returns the output to users.
+WebRTC: Used for direct, peer-to-peer video and screen sharing (the backend helps with signaling, but the video streams go directly between users).
+Deployment
+Vercel: Used for hosting and deploying the application (as indicated by the presence of vercel.json).
+How the Pieces Fit Together
+Frontend: Users interact with a React-based web app, write code in a collaborative editor, and communicate via video.
+Backend: Handles user connections, room management, real-time code sync, and acts as a bridge to the code execution API.
+Real-Time Sync: Achieved using socket.io (for events) and Yjs/Liveblocks (for collaborative document state).
+Code Execution: When a user runs code, the backend sends it to the Piston API and returns the result.
+Video/Screen Sharing: WebRTC is used for direct media streams, with the backend facilitating the initial connection setup.
+Summary Table
+Feature/Functionality	Technology/Library Used	Purpose/Role
+UI & SPA	React.js, Material UI, Shadcn UI, Tailwind CSS	Build and style the user interface
+Code Editing	CodeMirror, y-codemirror.next, Yjs, Liveblocks	Real-time collaborative code editing
+Real-Time Communication	socket.io, socket.io-client	Sync code, users, and events in real time
+Video Calls/Screen Sharing	WebRTC	Peer-to-peer video and screen sharing
+Code Execution	Piston API, Axios	Run code in various languages and get output
+Routing	React Router DOM	Navigation within the app
+Notifications	React Hot Toast, React Toast	User feedback and alerts
+Backend Server	Node.js, Express.js	API, static file serving, WebSocket server
+Deployment	Vercel	Hosting and deployment
+In Short
+SyncCodes is a collaborative coding platform that combines real-time code editing, video chat, and code execution, using a modern web stack (React, Node.js, Express, socket.io, WebRTC, CodeMirror, Yjs, and more). Each technology is chosen to provide a seamless, interactive, and productive experience for remote teams or coding partners.
