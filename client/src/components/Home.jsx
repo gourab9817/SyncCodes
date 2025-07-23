@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Moon, Sun, Code, Users, Zap, Clock, Globe, Lock, ChevronRight, Play, Video, Github, Linkedin } from 'lucide-react';
+import DecryptedText from './DecryptedText'; // Added import for DecryptedText
+import ShinyText from './DecryptedText';
 
 export default function LandingPage() {
   const [darkMode, setDarkMode] = useState(true);
@@ -489,70 +491,13 @@ function CodeEditor() {
               </div>
             </div>
 
-            {/* Quick links: Product */}
-            <div>
-              <h3 className={`font-semibold text-lg mb-4 ${darkMode ? "text-white" : "text-gray-800"}`}>Product</h3>
-              <ul className="space-y-2">
-                <li>
-                  <a href="#" className={`${darkMode ? "text-gray-400 hover:text-white" : "text-gray-600 hover:text-gray-900"} transition-all duration-300 hover:pl-2 block`}>
-                    Features
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className={`${darkMode ? "text-gray-400 hover:text-white" : "text-gray-600 hover:text-gray-900"} transition-all duration-300 hover:pl-2 block`}>
-                    Pricing
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className={`${darkMode ? "text-gray-400 hover:text-white" : "text-gray-600 hover:text-gray-900"} transition-all duration-300 hover:pl-2 block`}>
-                    Changelog
-                  </a>
-                </li>
-              </ul>
-            </div>
-
-            {/* Quick links: Resources */}
-            <div>
-              <h3 className={`font-semibold text-lg mb-4 ${darkMode ? "text-white" : "text-gray-800"}`}>Resources</h3>
-              <ul className="space-y-2">
-                <li>
-                  <a href="#" className={`${darkMode ? "text-gray-400 hover:text-white" : "text-gray-600 hover:text-gray-900"} transition-all duration-300 hover:pl-2 block`}>
-                    Documentation
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className={`${darkMode ? "text-gray-400 hover:text-white" : "text-gray-600 hover:text-gray-900"} transition-all duration-300 hover:pl-2 block`}>
-                    API
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className={`${darkMode ? "text-gray-400 hover:text-white" : "text-gray-600 hover:text-gray-900"} transition-all duration-300 hover:pl-2 block`}>
-                    Guides
-                  </a>
-                </li>
-              </ul>
-            </div>
-
-            {/* Quick links: Company */}
-            <div>
-              <h3 className={`font-semibold text-lg mb-4 ${darkMode ? "text-white" : "text-gray-800"}`}>Company</h3>
-              <ul className="space-y-2">
-                <li>
-                  <a href="#" className={`${darkMode ? "text-gray-400 hover:text-white" : "text-gray-600 hover:text-gray-900"} transition-all duration-300 hover:pl-2 block`}>
-                    About Us
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className={`${darkMode ? "text-gray-400 hover:text-white" : "text-gray-600 hover:text-gray-900"} transition-all duration-300 hover:pl-2 block`}>
-                    Contact
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className={`${darkMode ? "text-gray-400 hover:text-white" : "text-gray-600 hover:text-gray-900"} transition-all duration-300 hover:pl-2 block`}>
-                    Privacy Policy
-                  </a>
-                </li>
-              </ul>
+            {/* Dynamic ShinyText Logo Section (replaces Product/Resources/Company) */}
+            <div className="col-span-3 flex items-center justify-center">
+              <ShinyText
+                text="< /> SyncCodes"
+                speed={3}
+                className="text-6xl md:text-7xl"
+              />
             </div>
           </div>
 
