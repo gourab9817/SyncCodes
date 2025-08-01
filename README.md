@@ -11,7 +11,7 @@ https://www.synccode.live/
 - [How To Run](#how-to-run)
 - [Use Cases](#use-cases)
 
-## Demo Video
+## Demo Video- Click the Picture to get the project explaination.
 
 [![Watch the demo](https://img.youtube.com/vi/IiPcbEWGCsU/hqdefault.jpg)](https://youtu.be/IiPcbEWGCsU)
 
