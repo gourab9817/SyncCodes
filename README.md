@@ -70,4 +70,9 @@ SyncCodes is an advanced collaborative platform designed for real-time synchroni
 ## New add on 
 - Currently it doesn't support import libraries , Looking forwoard to add the feature
   
+## License
+
+This project is licensed under a custom **All Rights Reserved** license.  
+No reproduction, commercial use, or distribution is permitted without written permission.  
+Please contact c.gourab180@gmail.com for more information.
 
