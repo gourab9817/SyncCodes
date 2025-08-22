@@ -27,7 +27,7 @@ SyncCodes is an advanced collaborative platform designed for real-time synchroni
 
 ## User Flow
 
-![User Flow](App_flow.png)
+![User Flow](APP_flow.png)
 
 ## Key Features
 
