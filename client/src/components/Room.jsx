@@ -32,6 +32,7 @@ const RoomPage = () => {
   const { roomId, email } = useParams();
   const [incomingCall, setIncomingCall] = useState(false);
   const [remoteVideoOff, setRemoteVideoOff] = useState(false);
+  const [remoteAudioOff, setRemoteAudioOff] = useState(false);
   const [remoteEmail, setRemoteEmail] = useState(null);
   const [remoteSocketId, setRemoteSocketId] = useState(null);
   const [myStream, setMyStream] = useState();
@@ -206,7 +207,23 @@ const RoomPage = () => {
     setIsVideoOff((prev) => !prev);
   };
 
-  // Listen for remote video state changes.
+  const toggleMicrophone = () => {
+    if (myStream) {
+      const audioTrack = myStream.getAudioTracks()[0];
+      if (audioTrack) {
+        // Toggle the current audio track state.
+        audioTrack.enabled = !audioTrack.enabled;
+      }
+      socket.emit("user:audio:toggle", {
+        to: remoteSocketId,
+        isAudioOff: !isMuted,
+        email: email,
+      });
+    }
+    setIsMuted((prev) => !prev);
+  };
+
+  // Listen for remote video and audio state changes.
   useEffect(() => {
     const handleRemoteVideoToggle = ({ isVideoOff, email: remoteEmailFromEvent }) => {
       if (remoteEmail === remoteEmailFromEvent) {
@@ -222,6 +239,21 @@ const RoomPage = () => {
         });
       }
     };
+
+    const handleRemoteAudioToggle = ({ isAudioOff, email: remoteEmailFromEvent }) => {
+      if (remoteEmail === remoteEmailFromEvent) {
+        setRemoteAudioOff(isAudioOff);
+        setRemoteStream((prevStream) => {
+          if (prevStream) {
+            const audioTrack = prevStream.getAudioTracks()[0];
+            if (audioTrack) {
+              audioTrack.enabled = !isAudioOff;
+            }
+          }
+          return prevStream;
+        });
+      }
+    };
     const handleWaitForCall = ({ from, email }) => {
       toast("Wait until someone lets you in", {
         style: {
@@ -231,9 +263,11 @@ const RoomPage = () => {
       });
     };
     socket.on("remote:video:toggle", handleRemoteVideoToggle);
+    socket.on("remote:audio:toggle", handleRemoteAudioToggle);
     socket.on("wait:for:call", handleWaitForCall);
     return () => {
       socket.off("remote:video:toggle", handleRemoteVideoToggle);
+      socket.off("remote:audio:toggle", handleRemoteAudioToggle);
       socket.off("wait:for:call", handleWaitForCall);
     };
   }, [socket, remoteEmail, darkMode]);
@@ -387,6 +421,7 @@ const RoomPage = () => {
                               {!remoteVideoOff ? (
                                 <ReactPlayer
                                   playing
+                                  muted={remoteAudioOff}
                                   height="100%"
                                   width="100%"
                                   url={remoteStream}
@@ -478,6 +513,7 @@ const RoomPage = () => {
                           {!remoteVideoOff ? (
                             <ReactPlayer
                               playing
+                              muted={remoteAudioOff}
                               height="100%"
                               width="100%"
                               url={remoteStream}
@@ -565,7 +601,7 @@ const RoomPage = () => {
                   ? "bg-red-100 dark:bg-red-900 text-red-600 dark:text-red-300"
                   : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
               }`}
-              onClick={() => setIsMuted((prev) => !prev)}
+              onClick={toggleMicrophone}
             >
               {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
             </button>

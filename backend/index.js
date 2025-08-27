@@ -57,6 +57,12 @@ io.on("connection", (socket) => {
     console.log("user:video:toggle", to, isVideoOff, email);
     io.to(to).emit("remote:video:toggle", { isVideoOff, email });
   });
+
+  // for handling audio/microphone off event
+  socket.on("user:audio:toggle", ({ to, isAudioOff, email }) => {
+    console.log("user:audio:toggle", to, isAudioOff, email);
+    io.to(to).emit("remote:audio:toggle", { isAudioOff, email });
+  });
   socket.on("sync:code", ({ socketId, code }) => {
     io.to(socketId).emit("code:change", { code });
   });
