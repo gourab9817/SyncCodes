@@ -7,6 +7,7 @@ import { useParams } from "react-router-dom";
 import { toast, Toaster } from "react-hot-toast";
 import Dialog from "./DialogBox.jsx";
 import ExecuteCode from "./ExecuteCode.js";
+import Whiteboard from "./Whiteboard.jsx";
 import {
   Camera,
   Mic,
@@ -22,7 +23,8 @@ import {
   Moon,
   Sun,
   Copy,
-  CheckCheck
+  CheckCheck,
+  Pencil
 } from "lucide-react";
 
 const RoomPage = () => {
@@ -38,6 +40,7 @@ const RoomPage = () => {
   const [isCompiling, setIsCompiling] = useState(false);
   // UI-related state
   const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
@@ -325,7 +328,7 @@ const RoomPage = () => {
         {/* Main Content */}
         <div className="max-w-7xl mx-auto p-4">
           {/* Layout changes based on isEditorOpen state */}
-          <div className={`flex ${isEditorOpen ? "flex-row" : "flex-col"} w-full transition-all duration-300`}>
+          <div className={`flex ${isEditorOpen ? "flex-row" : "flex-col"} w-full transition-all duration-300 ${isWhiteboardOpen ? "mr-[400px]" : ""}`}>
             {/* Video Feeds */}
             <div className={`${isEditorOpen ? "w-[350px] mr-4" : "w-full"} transition-all duration-300`}>
               {isEditorOpen ? (
@@ -605,9 +608,28 @@ const RoomPage = () => {
             >
               {isFullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
             </button>
+            <div className="w-px h-6 bg-gray-300 dark:bg-gray-600"></div>
+            <button
+              className={`p-3 rounded-full ${
+                isWhiteboardOpen
+                  ? "bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300"
+                  : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+              }`}
+              onClick={() => setIsWhiteboardOpen((prev) => !prev)}
+            >
+              <Pencil size={20} />
+            </button>
           </div>
         </div>
       </div>
+      
+      {/* Whiteboard */}
+      <Whiteboard 
+        isOpen={isWhiteboardOpen} 
+        onClose={() => setIsWhiteboardOpen(false)} 
+        darkMode={darkMode}
+        roomId={roomId}
+      />
       
       {/* Admit Dialog */}
       {showDialog && remoteEmail && (

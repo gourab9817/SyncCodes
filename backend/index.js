@@ -102,6 +102,18 @@ io.on("connection", (socket) => {
     console.log("wait:for:call", to, email);
     io.to(to).emit("wait:for:call", { from: socket.id, email });
   });
+
+  // Whiteboard events
+  socket.on("whiteboard:update", ({ roomId, strokes }) => {
+    console.log("whiteboard:update", roomId);
+    socket.to(roomId).emit("whiteboard:update", { strokes });
+  });
+
+  socket.on("whiteboard:clear", ({ roomId }) => {
+    console.log("whiteboard:clear", roomId);
+    socket.to(roomId).emit("whiteboard:clear");
+  });
+
   socket.on("disconnecting", () => {
  
     io.emit("user:left", { id: socket.id });

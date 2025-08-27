@@ -11,23 +11,11 @@ https://www.synccode.live/
 - [How To Run](#how-to-run)
 - [Use Cases](#use-cases)
 
-## Demo Video- Click the Picture to get the project explaination.
-
-[![Watch the demo](https://img.youtube.com/vi/IiPcbEWGCsU/hqdefault.jpg)](https://youtu.be/IiPcbEWGCsU)
-
-
 ## SyncCodes
 
 SyncCodes is an advanced collaborative platform designed for real-time synchronization and editing of code across multiple users. Built with WebRTC and WebSockets, it combines the power of real-time communication with efficient code collaboration tools. The platform aims to enhance team productivity by providing an interactive environment where participants can code, debug, and execute programs simultaneously while staying in sync.
 
-### Apps architecture diagram
-## Application Architecture
 
-![Architecture Diagram](Architecture.png)
-
-## User Flow
-
-![User Flow](APP_flow.png)
 
 ## Key Features
 
@@ -77,9 +65,4 @@ SyncCodes is an advanced collaborative platform designed for real-time synchroni
 ## New add on 
 - Currently it doesn't support import libraries , Looking forwoard to add the feature
   
-## License
-
-This project is licensed under a custom **All Rights Reserved** license.  
-No reproduction, commercial use, or distribution is permitted without written permission.  
-Please contact c.gourab180@gmail.com for more information.
 
