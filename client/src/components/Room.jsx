@@ -7,6 +7,7 @@ import { useParams } from "react-router-dom";
 import { toast, Toaster } from "react-hot-toast";
 import Dialog from "./DialogBox.jsx";
 import ExecuteCode from "./ExecuteCode.js";
+import Whiteboard from "./Whiteboard.jsx";
 import {
   Camera,
   Mic,
@@ -22,7 +23,8 @@ import {
   Moon,
   Sun,
   Copy,
-  CheckCheck
+  CheckCheck,
+  Pencil
 } from "lucide-react";
 
 const RoomPage = () => {
@@ -30,6 +32,7 @@ const RoomPage = () => {
   const { roomId, email } = useParams();
   const [incomingCall, setIncomingCall] = useState(false);
   const [remoteVideoOff, setRemoteVideoOff] = useState(false);
+  const [remoteAudioOff, setRemoteAudioOff] = useState(false);
   const [remoteEmail, setRemoteEmail] = useState(null);
   const [remoteSocketId, setRemoteSocketId] = useState(null);
   const [myStream, setMyStream] = useState();
@@ -38,6 +41,7 @@ const RoomPage = () => {
   const [isCompiling, setIsCompiling] = useState(false);
   // UI-related state
   const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
@@ -203,7 +207,23 @@ const RoomPage = () => {
     setIsVideoOff((prev) => !prev);
   };
 
-  // Listen for remote video state changes.
+  const toggleMicrophone = () => {
+    if (myStream) {
+      const audioTrack = myStream.getAudioTracks()[0];
+      if (audioTrack) {
+        // Toggle the current audio track state.
+        audioTrack.enabled = !audioTrack.enabled;
+      }
+      socket.emit("user:audio:toggle", {
+        to: remoteSocketId,
+        isAudioOff: !isMuted,
+        email: email,
+      });
+    }
+    setIsMuted((prev) => !prev);
+  };
+
+  // Listen for remote video and audio state changes.
   useEffect(() => {
     const handleRemoteVideoToggle = ({ isVideoOff, email: remoteEmailFromEvent }) => {
       if (remoteEmail === remoteEmailFromEvent) {
@@ -219,6 +239,21 @@ const RoomPage = () => {
         });
       }
     };
+
+    const handleRemoteAudioToggle = ({ isAudioOff, email: remoteEmailFromEvent }) => {
+      if (remoteEmail === remoteEmailFromEvent) {
+        setRemoteAudioOff(isAudioOff);
+        setRemoteStream((prevStream) => {
+          if (prevStream) {
+            const audioTrack = prevStream.getAudioTracks()[0];
+            if (audioTrack) {
+              audioTrack.enabled = !isAudioOff;
+            }
+          }
+          return prevStream;
+        });
+      }
+    };
     const handleWaitForCall = ({ from, email }) => {
       toast("Wait until someone lets you in", {
         style: {
@@ -228,9 +263,11 @@ const RoomPage = () => {
       });
     };
     socket.on("remote:video:toggle", handleRemoteVideoToggle);
+    socket.on("remote:audio:toggle", handleRemoteAudioToggle);
     socket.on("wait:for:call", handleWaitForCall);
     return () => {
       socket.off("remote:video:toggle", handleRemoteVideoToggle);
+      socket.off("remote:audio:toggle", handleRemoteAudioToggle);
       socket.off("wait:for:call", handleWaitForCall);
     };
   }, [socket, remoteEmail, darkMode]);
@@ -325,7 +362,7 @@ const RoomPage = () => {
         {/* Main Content */}
         <div className="max-w-7xl mx-auto p-4">
           {/* Layout changes based on isEditorOpen state */}
-          <div className={`flex ${isEditorOpen ? "flex-row" : "flex-col"} w-full transition-all duration-300`}>
+          <div className={`flex ${isEditorOpen ? "flex-row" : "flex-col"} w-full transition-all duration-300 ${isWhiteboardOpen ? "mr-[400px]" : ""}`}>
             {/* Video Feeds */}
             <div className={`${isEditorOpen ? "w-[350px] mr-4" : "w-full"} transition-all duration-300`}>
               {isEditorOpen ? (
@@ -384,6 +421,7 @@ const RoomPage = () => {
                               {!remoteVideoOff ? (
                                 <ReactPlayer
                                   playing
+                                  muted={remoteAudioOff}
                                   height="100%"
                                   width="100%"
                                   url={remoteStream}
@@ -475,6 +513,7 @@ const RoomPage = () => {
                           {!remoteVideoOff ? (
                             <ReactPlayer
                               playing
+                              muted={remoteAudioOff}
                               height="100%"
                               width="100%"
                               url={remoteStream}
@@ -562,7 +601,7 @@ const RoomPage = () => {
                   ? "bg-red-100 dark:bg-red-900 text-red-600 dark:text-red-300"
                   : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
               }`}
-              onClick={() => setIsMuted((prev) => !prev)}
+              onClick={toggleMicrophone}
             >
               {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
             </button>
@@ -605,9 +644,28 @@ const RoomPage = () => {
             >
               {isFullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
             </button>
+            <div className="w-px h-6 bg-gray-300 dark:bg-gray-600"></div>
+            <button
+              className={`p-3 rounded-full ${
+                isWhiteboardOpen
+                  ? "bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300"
+                  : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+              }`}
+              onClick={() => setIsWhiteboardOpen((prev) => !prev)}
+            >
+              <Pencil size={20} />
+            </button>
           </div>
         </div>
       </div>
+      
+      {/* Whiteboard */}
+      <Whiteboard 
+        isOpen={isWhiteboardOpen} 
+        onClose={() => setIsWhiteboardOpen(false)} 
+        darkMode={darkMode}
+        roomId={roomId}
+      />
       
       {/* Admit Dialog */}
       {showDialog && remoteEmail && (
