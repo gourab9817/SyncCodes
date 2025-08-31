@@ -57,12 +57,6 @@ io.on("connection", (socket) => {
     console.log("user:video:toggle", to, isVideoOff, email);
     io.to(to).emit("remote:video:toggle", { isVideoOff, email });
   });
-
-  // for handling audio/microphone off event
-  socket.on("user:audio:toggle", ({ to, isAudioOff, email }) => {
-    console.log("user:audio:toggle", to, isAudioOff, email);
-    io.to(to).emit("remote:audio:toggle", { isAudioOff, email });
-  });
   socket.on("sync:code", ({ socketId, code }) => {
     io.to(socketId).emit("code:change", { code });
   });
@@ -108,18 +102,6 @@ io.on("connection", (socket) => {
     console.log("wait:for:call", to, email);
     io.to(to).emit("wait:for:call", { from: socket.id, email });
   });
-
-  // Whiteboard events
-  socket.on("whiteboard:update", ({ roomId, strokes }) => {
-    console.log("whiteboard:update", roomId);
-    socket.to(roomId).emit("whiteboard:update", { strokes });
-  });
-
-  socket.on("whiteboard:clear", ({ roomId }) => {
-    console.log("whiteboard:clear", roomId);
-    socket.to(roomId).emit("whiteboard:clear");
-  });
-
   socket.on("disconnecting", () => {
  
     io.emit("user:left", { id: socket.id });
