@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Stage, Layer, Line, Rect } from 'react-konva';
+import { Stage, Layer, Line, Rect, Shape } from 'react-konva';
 import { useSocket } from '../utils/SocketProvider.js';
 import useResizeObserver from '@react-hook/resize-observer';
 import { 
@@ -17,9 +17,11 @@ const Whiteboard = ({ isOpen, onClose, darkMode, roomId }) => {
   const socket = useSocket();
   const containerRef = useRef(null);
   const stageRef = useRef(null);
+  const mainLayerRef = useRef(null);
   const [tool, setTool] = useState('pen');
   const [color, setColor] = useState('#000000');
   const [strokeWidth, setStrokeWidth] = useState(2);
+  const [eraserSize, setEraserSize] = useState(20);
   const [isDrawing, setIsDrawing] = useState(false);
   const [lines, setLines] = useState([]);
   const [history, setHistory] = useState([]);
@@ -61,6 +63,44 @@ const Whiteboard = ({ isOpen, onClose, darkMode, roomId }) => {
     };
   }, [isOpen]);
 
+  // Create eraser shape function that uses destination-out to erase
+  const createEraserShape = useCallback((line, index) => {
+    return (
+      <Shape
+        key={line.id || `eraser-${index}`}
+        sceneFunc={(ctx) => {
+          // Set composite operation to destination-out for erasing
+          ctx.save();
+          ctx.globalCompositeOperation = 'destination-out';
+          
+          if (line.points && line.points.length >= 2) {
+            ctx.beginPath();
+            ctx.moveTo(line.points[0], line.points[1]);
+            
+            // Draw the eraser path
+            for (let i = 2; i < line.points.length; i += 2) {
+              if (line.points[i] !== undefined && line.points[i + 1] !== undefined) {
+                ctx.lineTo(line.points[i], line.points[i + 1]);
+              }
+            }
+            
+            // Set stroke properties for erasing
+            ctx.strokeStyle = 'rgba(0,0,0,1)';
+            ctx.lineWidth = line.strokeWidth || eraserSize;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.stroke();
+          }
+          
+          // Restore previous composite operation
+          ctx.restore();
+        }}
+        listening={false}
+        perfectDrawEnabled={false}
+      />
+    );
+  }, [eraserSize]);
+
 
 
   // Listen for whiteboard updates from other users
@@ -96,15 +136,17 @@ const Whiteboard = ({ isOpen, onClose, darkMode, roomId }) => {
     const pos = e.target.getStage().getPointerPosition();
     const newLine = {
       tool,
-      color: tool === 'eraser' ? 'rgba(0,0,0,0)' : color, // Transparent for eraser
-      strokeWidth: tool === 'eraser' ? 20 : strokeWidth,
+      color: tool === 'eraser' ? '#ffffff' : color,
+      strokeWidth: tool === 'eraser' ? eraserSize : strokeWidth,
       points: [pos.x, pos.y],
-      id: Date.now().toString(),
+      id: Date.now().toString() + '-' + Math.random(),
     };
     const newLines = [...lines, newLine];
     setLines(newLines);
+    
+    // Emit update immediately for real-time sync
     emitWhiteboardUpdate(newLines);
-  }, [lines, tool, color, strokeWidth, emitWhiteboardUpdate]);
+  }, [lines, tool, color, strokeWidth, eraserSize, emitWhiteboardUpdate]);
 
   const handleMouseMove = useCallback((e) => {
     if (!isDrawing) return;
@@ -279,21 +321,21 @@ const Whiteboard = ({ isOpen, onClose, darkMode, roomId }) => {
            </span>
            <input
              type="range"
-             min="1"
-             max="20"
-             value={tool === 'eraser' ? 20 : strokeWidth}
+             min="5"
+             max="50"
+             value={tool === 'eraser' ? eraserSize : strokeWidth}
              onChange={(e) => {
+               const value = parseInt(e.target.value);
                if (tool === 'eraser') {
-                 // Eraser size is fixed at 20 for better erasing
+                 setEraserSize(value);
                } else {
-                 setStrokeWidth(parseInt(e.target.value));
+                 setStrokeWidth(value);
                }
              }}
              className="flex-1"
-             disabled={tool === 'eraser'}
            />
            <span className="text-sm text-gray-600 dark:text-gray-300 w-8">
-             {tool === 'eraser' ? '20' : strokeWidth}
+             {tool === 'eraser' ? eraserSize : strokeWidth}
            </span>
          </div>
       </div>
@@ -320,8 +362,8 @@ const Whiteboard = ({ isOpen, onClose, darkMode, roomId }) => {
               onMouseup={handleMouseUp}
               style={{ background: darkMode ? '#374151' : '#ffffff' }}
             >
+              {/* Background Layer */}
               <Layer>
-                {/* Background - covers the visible canvas area */}
                 <Rect
                   x={0}
                   y={0}
@@ -329,21 +371,29 @@ const Whiteboard = ({ isOpen, onClose, darkMode, roomId }) => {
                   height={canvasSize.height}
                   fill={darkMode ? '#374151' : '#ffffff'}
                 />
+              </Layer>
+              
+              {/* Drawing Layer - pen strokes and eraser shapes */}
+              <Layer ref={mainLayerRef}>
+                {/* All drawing lines (pen tool only) */}
+                {lines
+                  .filter(line => line.tool !== 'eraser')
+                  .map((line, i) => (
+                    <Line
+                      key={line.id || `pen-${i}`}
+                      points={line.points}
+                      stroke={line.color}
+                      strokeWidth={line.strokeWidth}
+                      tension={0.5}
+                      lineCap="round"
+                      lineJoin="round"
+                    />
+                  ))}
                 
-                {/* Draw lines - using absolute coordinates */}
-                {lines.map((line, i) => (
-                  <Line
-                    key={line.id || i}
-                    points={line.points}
-                    stroke={line.color}
-                    strokeWidth={line.strokeWidth}
-                    tension={0.5}
-                    lineCap="round"
-                    lineJoin="round"
-                    globalCompositeOperation={line.tool === 'eraser' ? 'destination-out' : 'source-over'}
-                    listening={line.tool !== 'eraser'} // Disable interaction for eraser lines
-                  />
-                ))}
+                {/* Eraser shapes - use destination-out to erase what's below */}
+                {lines
+                  .filter(line => line.tool === 'eraser')
+                  .map((line, i) => createEraserShape(line, i))}
               </Layer>
             </Stage>
           )}

@@ -8,6 +8,7 @@ import { toast, Toaster } from "react-hot-toast";
 import Dialog from "./DialogBox.jsx";
 import ExecuteCode from "./ExecuteCode.js";
 import Whiteboard from "./Whiteboard.jsx";
+import ResumeInterviewModal from "./ResumeInterviewModal.jsx";
 import {
   Camera,
   Mic,
@@ -24,7 +25,8 @@ import {
   Sun,
   Copy,
   CheckCheck,
-  Pencil
+  Pencil,
+  FileText
 } from "lucide-react";
 
 const RoomPage = () => {
@@ -48,6 +50,7 @@ const RoomPage = () => {
   const [showDialog, setShowDialog] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isResumeModalOpen, setIsResumeModalOpen] = useState(false);
 
   // When a user joins, sync code and update state.
   const handleUserJoined = useCallback(
@@ -655,6 +658,17 @@ const RoomPage = () => {
             >
               <Pencil size={20} />
             </button>
+            <button
+              className={`p-3 rounded-full ${
+                isResumeModalOpen
+                  ? "bg-purple-100 dark:bg-purple-900 text-purple-600 dark:text-purple-300"
+                  : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+              }`}
+              onClick={() => setIsResumeModalOpen((prev) => !prev)}
+              title="Resume Interview Questions"
+            >
+              <FileText size={20} />
+            </button>
           </div>
         </div>
       </div>
@@ -663,6 +677,14 @@ const RoomPage = () => {
       <Whiteboard 
         isOpen={isWhiteboardOpen} 
         onClose={() => setIsWhiteboardOpen(false)} 
+        darkMode={darkMode}
+        roomId={roomId}
+      />
+      
+      {/* Resume Interview Modal */}
+      <ResumeInterviewModal 
+        isOpen={isResumeModalOpen} 
+        onClose={() => setIsResumeModalOpen(false)} 
         darkMode={darkMode}
         roomId={roomId}
       />

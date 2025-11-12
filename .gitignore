@@ -1,3 +1,194 @@
-node_modules
-.vscode
-.idea
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+# Keep package-lock.json for consistent installs
+# package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
+
+# Build outputs
+build/
+dist/
+*.log
+*.pid
+*.seed
+*.pid.lock
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Testing
+coverage/
+.nyc_output/
+*.test.js.snap
+.jest/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+.temp/
+tmp/
+temp/
+
+# Model files (if large)
+*.gguf
+*.bin
+*.safetensors
+models/
+checkpoints/
+
+# Uploads and user-generated content
+uploads/
+user-uploads/
+*.pdf
+*.doc
+*.docx
+!documentation/*.pdf
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# parcel-bundler cache
+.parcel-cache
+
+# Next.js (if used)
+.next/
+out/
+
+# Nuxt.js (if used)
+.nuxt/
+
+# Vercel
+.vercel
+
+# Serverless directories
+.serverless/
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# TernJS port file
+.tern-port
+
+# Stores VSCode versions used for testing VSCode extensions
+.vscode-test
+
+# React build
+client/build/
+client/.pnp
+client/.pnp.js
+
+# Backend specific
+backend/uploads/
+backend/temp/
+backend/logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Python (if used for model)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# MacOS
+.AppleDouble
+.LSOverride
+
+# Windows
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+
+# Linux
+*~
+
+# Project specific - Model files (uncomment if model files are large)
+# interview_model.gguf
+# *.gguf
+
+# Upload directories
+client/public/uploads/
+backend/uploads/
+temp-uploads/
