@@ -1,0 +1,29 @@
+# Optional standalone Piston service — use this only for local development.
+# In production, Piston is included in docker-compose.prod.yml on an internal
+# network and is NOT exposed to the host.
+#
+# Local dev usage:
+#   docker compose -f docker-compose.execution.yml up -d
+#
+# Then set in backend/.env:
+#   EXECUTION_BACKEND=piston
+#   PISTON_API_URL=http://localhost:2000
+#
+# Install language runtimes after first boot:
+#   docker exec syncodes-piston bash -c "cd /piston && node repo pkgman install python 3.10.0"
+#   docker exec syncodes-piston bash -c "cd /piston && node repo pkgman install javascript 18.15.0"
+#   docker exec syncodes-piston bash -c "cd /piston && node repo pkgman install java 15.0.2"
+#
+# Full package list: https://github.com/engineer-man/piston
+
+services:
+  piston:
+    image: ghcr.io/engineer-man/piston:latest
+    container_name: syncodes-piston
+    restart: unless-stopped
+    # Bind to localhost only — never expose Piston publicly (no auth).
+    ports:
+      - "127.0.0.1:2000:2000"
+    # Piston docs: privileged mode may be required for namespace sandboxing on
+    # some Linux kernel configs. Review before enabling.
+    # privileged: true

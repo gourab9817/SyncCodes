@@ -3,12 +3,14 @@ import ReactPlayer from "react-player";
 import peer from "../services/Peer.js";
 import { useSocket } from "../utils/SocketProvider.js";
 import Editor from "./EditorPage.js";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { toast, Toaster } from "react-hot-toast";
 import Dialog from "./DialogBox.jsx";
 import ExecuteCode from "./ExecuteCode.js";
 import Whiteboard from "./Whiteboard.jsx";
 import ResumeInterviewModal from "./ResumeInterviewModal.jsx";
+import ChatPanel from "./room/ChatPanel.jsx";
+import { useAuth } from "../context/AuthContext";
 import {
   Camera,
   Mic,
@@ -26,12 +28,22 @@ import {
   Copy,
   CheckCheck,
   Pencil,
-  FileText
+  FileText,
+  MessageSquare
 } from "lucide-react";
 
 const RoomPage = () => {
   const socket = useSocket();
-  const { roomId, email } = useParams();
+  const { roomId, email: urlEmail } = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const email = user?.email || urlEmail || 'Guest';
+  const [roomValid, setRoomValid] = useState(true);
+
+  useEffect(() => {
+    if (!socket || !roomId || !user?.email) return;
+    socket.emit('room:join', { email: user.email, room: roomId });
+  }, [socket, roomId, user?.email]);
   const [incomingCall, setIncomingCall] = useState(false);
   const [remoteVideoOff, setRemoteVideoOff] = useState(false);
   const [remoteAudioOff, setRemoteAudioOff] = useState(false);
@@ -39,7 +51,6 @@ const RoomPage = () => {
   const [remoteSocketId, setRemoteSocketId] = useState(null);
   const [myStream, setMyStream] = useState();
   const [remoteStream, setRemoteStream] = useState(null);
-  const [codeRef, setCodeRef] = useState(null);
   const [isCompiling, setIsCompiling] = useState(false);
   // UI-related state
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -51,46 +62,58 @@ const RoomPage = () => {
   const [darkMode, setDarkMode] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isResumeModalOpen, setIsResumeModalOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   // When a user joins, sync code and update state.
   const handleUserJoined = useCallback(
     ({ email, id }) => {
+      // Ignore our own join notification — the server uses socket.to() which
+      // already excludes us, but guard here too in case of reconnect edge cases.
+      if (!id || id === socket?.id) return;
       console.log(`Email ${email} joined room`, id);
-      socket.emit("sync:code", { id, codeRef });
       setRemoteSocketId(id);
       setRemoteEmail(email);
       setShowDialog(true);
       socket.emit("wait:for:call", { to: id, email });
     },
-    [socket, codeRef]
+    [socket]
   );
 
   const handleCallUser = useCallback(async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: true,
-    });
+    // Use existing stream if available, otherwise get new one
+    let stream = myStream;
+    if (!stream) {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: true,
+      });
+      setMyStream(stream);
+    }
     const offer = await peer.getOffer();
     socket.emit("user:call", { to: remoteSocketId, offer, email });
-    setMyStream(stream);
     setShowDialog(false);
-  }, [remoteSocketId, socket, email]);
+  }, [remoteSocketId, socket, email, myStream]);
 
   const handleIncommingCall = useCallback(
     async ({ from, offer, fromEmail }) => {
       setRemoteSocketId(from);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: true,
-      });
+      // Use existing stream if available, otherwise get new one
+      let stream = myStream;
+      if (!stream) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: true,
+        });
+        setMyStream(stream);
+      }
       setIncomingCall(true);
       console.log("Incoming Call", from, offer);
-      setMyStream(stream);
       setRemoteEmail(fromEmail);
       const ans = await peer.getAnswer(offer);
       socket.emit("call:accepted", { to: from, ans });
     },
-    [socket]
+    [socket, myStream]
   );
 
   const sendStreams = useCallback(() => {
@@ -134,6 +157,32 @@ const RoomPage = () => {
     await peer.setLocalDescription(ans);
   }, []);
 
+  // Initialize camera on mount (like Google Meet)
+  useEffect(() => {
+    const initializeMedia = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: true,
+        });
+        setMyStream(stream);
+        console.log("Camera and microphone initialized");
+      } catch (error) {
+        console.error("Error accessing media devices:", error);
+        toast.error("Could not access camera/microphone");
+      }
+    };
+
+    initializeMedia();
+
+    // Cleanup: stop tracks when component unmounts
+    return () => {
+      if (myStream) {
+        myStream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []); // Only run once on mount
+
   useEffect(() => {
     const trackHandler = (ev) => {
       const streams = ev.streams;
@@ -149,11 +198,14 @@ const RoomPage = () => {
   }, []);
 
   useEffect(() => {
+    if (!socket) return;
+
     socket.on("user:joined", handleUserJoined);
     socket.on("incomming:call", handleIncommingCall);
     socket.on("call:accepted", handleCallAccepted);
     socket.on("peer:nego:needed", handleNegoNeedIncomming);
     socket.on("peer:nego:final", handleNegoNeedFinal);
+
     const handleUserLeft = ({ email }) => {
       toast(`${email} has left the room.`, { icon: "👋" });
       console.log(`${email} has left the room.`);
@@ -163,7 +215,17 @@ const RoomPage = () => {
         setRemoteStream(null);
       }
     };
+    
+    const handleRoomJoinError = ({ error }) => {
+      toast.error(error);
+      setRoomValid(false);
+      setTimeout(() => {
+        navigate(user ? '/dashboard' : '/');
+      }, 3000);
+    };
+    
     socket.on("user:left", handleUserLeft);
+    socket.on("room:join:error", handleRoomJoinError);
 
     return () => {
       socket.off("user:joined", handleUserJoined);
@@ -172,6 +234,7 @@ const RoomPage = () => {
       socket.off("peer:nego:needed", handleNegoNeedIncomming);
       socket.off("peer:nego:final", handleNegoNeedFinal);
       socket.off("user:left", handleUserLeft);
+      socket.off("room:join:error", handleRoomJoinError);
     };
   }, [
     socket,
@@ -181,6 +244,8 @@ const RoomPage = () => {
     handleNegoNeedIncomming,
     handleNegoNeedFinal,
     remoteSocketId,
+    navigate,
+    user,
   ]);
 
   // Automatically trigger sendStreams when incomingCall is true.
@@ -284,8 +349,17 @@ const RoomPage = () => {
     setRemoteSocketId(null);
     setRemoteEmail(null);
     setRemoteStream(null);
-    window.close();
+    // Navigate to dashboard if authenticated, otherwise home
+    navigate(user ? '/dashboard' : '/');
   };
+
+  // Track unread messages when chat is closed
+  useEffect(() => {
+    if (isChatOpen) { setUnreadCount(0); return; }
+    const handler = () => setUnreadCount((n) => n + 1);
+    socket.on('message:new', handler);
+    return () => socket.off('message:new', handler);
+  }, [socket, isChatOpen]);
 
   const showScreen = async () => {
     try {
@@ -325,6 +399,23 @@ const RoomPage = () => {
       }
     });
   };
+  
+  if (!roomValid) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-4">Invalid Room</h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-4">
+            This room does not exist or is no longer active.
+          </p>
+          <p className="text-sm text-gray-500 dark:text-gray-500">
+            Redirecting you back...
+          </p>
+        </div>
+      </div>
+    );
+  }
+  
   return (
     <div className={darkMode ? "dark" : ""}>
       <Toaster />
@@ -585,7 +676,6 @@ const RoomPage = () => {
                     <Editor
                       roomId={roomId}
                       socket={socket}
-                      onCodeChange={(code) => setCodeRef(code)}
                       darkMode={darkMode}
                     />
                   </div>
@@ -669,17 +759,66 @@ const RoomPage = () => {
             >
               <FileText size={20} />
             </button>
+            <button
+              className={`p-3 rounded-full relative ${
+                isChatOpen
+                  ? "bg-teal-100 dark:bg-teal-900 text-teal-600 dark:text-teal-300"
+                  : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+              }`}
+              onClick={() => { setIsChatOpen((prev) => !prev); setUnreadCount(0); }}
+              title="Chat"
+            >
+              <MessageSquare size={20} />
+              {unreadCount > 0 && !isChatOpen && (
+                <span style={{
+                  position: 'absolute', top: 4, right: 4,
+                  background: '#FF6B5B', color: '#fff',
+                  borderRadius: '50%', width: 16, height: 16,
+                  fontSize: 10, fontWeight: 700,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
           </div>
         </div>
       </div>
       
       {/* Whiteboard */}
-      <Whiteboard 
-        isOpen={isWhiteboardOpen} 
-        onClose={() => setIsWhiteboardOpen(false)} 
+      <Whiteboard
+        isOpen={isWhiteboardOpen}
+        onClose={() => setIsWhiteboardOpen(false)}
         darkMode={darkMode}
         roomId={roomId}
       />
+
+      {/* Chat Panel */}
+      {isChatOpen && (
+        <div style={{
+          position: 'fixed', right: 16, bottom: 80, top: 72,
+          width: 320, zIndex: 200,
+          display: 'flex', flexDirection: 'column',
+        }}>
+          <div style={{ position: 'absolute', top: -8, right: 0 }}>
+            <button
+              onClick={() => setIsChatOpen(false)}
+              style={{
+                background: '#FF6B5B', color: '#fff', border: 'none',
+                borderRadius: '50%', width: 24, height: 24, cursor: 'pointer',
+                fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              ×
+            </button>
+          </div>
+          <ChatPanel
+            roomId={roomId}
+            currentUser={user || { name: email }}
+            darkMode={darkMode}
+          />
+        </div>
+      )}
       
       {/* Resume Interview Modal */}
       <ResumeInterviewModal 

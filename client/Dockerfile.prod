@@ -1,0 +1,33 @@
+# ── Stage 1: build React app ──────────────────────────────────────────────────
+FROM node:20-alpine AS build
+
+WORKDIR /app
+
+# react-scripts 5 on Node 17+ needs the legacy OpenSSL provider.
+# Set it here via ENV (not via Windows `set` command which doesn't work in Docker).
+ENV NODE_OPTIONS=--openssl-legacy-provider
+
+COPY client/package*.json ./
+RUN npm ci
+
+COPY client/ .
+
+# Injected at build time — defaults to "/" so Nginx proxies API calls to the backend
+ARG REACT_APP_API_URL=/
+ENV REACT_APP_API_URL=${REACT_APP_API_URL}
+
+RUN npm run build
+
+# ── Stage 2: serve with Nginx ─────────────────────────────────────────────────
+FROM nginx:1.27-alpine AS runtime
+
+# Remove the default Nginx config
+RUN rm /etc/nginx/conf.d/default.conf
+
+COPY nginx/prod.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/build /usr/share/nginx/html
+
+EXPOSE 80
+
+# Nginx handles its own signals correctly — no tini needed here
+CMD ["nginx", "-g", "daemon off;"]

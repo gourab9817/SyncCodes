@@ -1,3 +1,16 @@
+// =============================================================================
+// LEGACY FILE — DO NOT USE IN PRODUCTION OR DEPLOY VIA VERCEL
+// This file exists for historical reference only. The production server is
+// backend/server.js. If you see this file being executed, something is wrong
+// with your deployment configuration.
+// =============================================================================
+if (process.env.NODE_ENV === 'production') {
+  console.error('[FATAL] backend/index.js must not run in production. Use server.js instead.');
+  process.exit(1);
+}
+
+require('dotenv').config();
+
 const { Server } = require("socket.io");
 const express = require("express");
 const app = express();
@@ -15,7 +28,7 @@ app.use(express.static('../client/build'));
 
 // Configure multer for file uploads (memory storage)
 const storage = multer.memoryStorage();
-const upload = multer({ 
+const upload = multer({
   storage: storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
   fileFilter: (req, file, cb) => {
@@ -28,9 +41,10 @@ const upload = multer({
   }
 });
 
-// Initialize 
-const GEMINI_API_KEY = 'AIzaSyD8WCHhtB7TU5NTU0D2RzaLtmbamxfHMqY';
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+if (!process.env.GEMINI_API_KEY) {
+  throw new Error('Missing required environment variable: GEMINI_API_KEY');
+}
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Helper function to parse PDF
 async function parsePDF(buffer) {
@@ -203,9 +217,7 @@ io.on("connection", (socket) => {
     console.log(`${socket.id} joined ${room}`);
     io.to(socket.id).emit("room:join", data);
     const clients = getAllConnectedClients(room);
-    clients.forEach(({ socketId }) => {
-      io.emit("new", { clients });
-    });
+    io.to(room).emit("new", { clients });
   });
 
   socket.on("code:change", ({ roomId, code }) => {
@@ -284,9 +296,13 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnecting", () => {
- 
-    io.emit("user:left", { id: socket.id });
-
+    socket.rooms.forEach((roomId) => {
+      if (roomId !== socket.id) {
+        socket.to(roomId).emit("user:left", { id: socket.id, email: socketidToEmailMap.get(socket.id) });
+      }
+    });
+    emailToSocketIdMap.forEach((sid, em) => { if (sid === socket.id) emailToSocketIdMap.delete(em); });
+    socketidToEmailMap.delete(socket.id);
     console.log(`Socket Disconnected: ${socket.id}`);
   });
 });

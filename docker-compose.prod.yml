@@ -1,0 +1,106 @@
+# SyncCodes — production compose
+#
+# Setup:
+#   1. Ensure backend/.env exists and contains real values.
+#      IMPORTANT: never commit secrets.
+#   2. Set CLIENT_URL in backend/.env to your actual domain (e.g. https://synccodes.com).
+#   3. docker compose -f docker-compose.prod.yml up -d --build
+#
+# Code execution:
+#   This compose includes a Piston service for sandboxed code execution.
+#   Install language runtimes after first start (see docker-compose.execution.yml for details).
+#   EXECUTION_BACKEND is forced to "piston" below — local executor is blocked in production.
+
+services:
+
+  # ── Redis — Socket.IO pub/sub for multi-instance fan-out ───────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: syncodes-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis-data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ── Piston — sandboxed code execution ──────────────────────────────────────
+  # Never expose port 2000 to the public internet. It is internal-only.
+  piston:
+    image: ghcr.io/engineer-man/piston:latest
+    container_name: syncodes-piston
+    restart: unless-stopped
+    networks:
+      - internal
+    # Install language packages after first boot:
+    #   docker exec syncodes-piston bash -c "cd /piston && node repo pkgman install python 3.10.0"
+    #   docker exec syncodes-piston bash -c "cd /piston && node repo pkgman install javascript 18.15.0"
+    # See https://github.com/engineer-man/piston for full package list.
+
+  # ── Backend API + Socket.IO ─────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: syncodes-backend:latest
+    container_name: syncodes-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env     # contains DATABASE_URL, JWT_SECRET, GEMINI_API_KEY, etc.
+    environment:
+      NODE_ENV: production
+      PORT: "8000"
+      SOCKET_AUTH_REQUIRED: "true"
+      REDIS_URL: redis://redis:6379
+      # Code execution — always use Piston in production (local is blocked)
+      EXECUTION_BACKEND: piston
+      EXECUTION_REQUIRE_AUTH: "true"
+      PISTON_API_URL: http://piston:2000
+    depends_on:
+      redis:
+        condition: service_healthy
+      piston:
+        condition: service_started
+    expose:
+      - "8000"
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+
+  # ── Nginx — static SPA + reverse proxy ────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: client/Dockerfile.prod
+      args:
+        # "/" means the browser calls the same origin for API — Nginx proxies it
+        REACT_APP_API_URL: /
+    image: syncodes-web:latest
+    container_name: syncodes-web
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    networks:
+      - internal
+
+networks:
+  # All services communicate on an isolated internal network.
+  # Only the `web` service exposes a port to the host.
+  internal:
+    driver: bridge
+
+volumes:
+  redis-data:

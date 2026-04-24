@@ -1,0 +1,39 @@
+# Dependencies (reinstalled inside image via npm ci)
+node_modules
+
+# Environment — never bake secrets into the image
+.env
+.env.*
+
+# Legacy entry point — production uses server.js only
+index.js
+
+# Tests
+test/
+*.test.js
+*.spec.js
+coverage/
+.nyc_output/
+
+# Dev tooling
+nodemon.json
+.eslintrc*
+.prettierrc*
+.editorconfig
+
+# Logs and temp files
+*.log
+npm-debug.log*
+logs/
+tmp/
+temp/
+
+# IDE and OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore

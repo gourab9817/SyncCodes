@@ -1,0 +1,12 @@
+.git
+.gitignore
+**/node_modules
+**/build
+**/.cache
+**/.DS_Store
+**/*.log
+terminals
+agent-transcripts
+mcps
+.cursor
+.claude

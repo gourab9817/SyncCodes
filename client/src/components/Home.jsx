@@ -66,7 +66,7 @@ export default function LandingPage() {
   }, []);
   
   const handleGetStarted = () => {
-    navigate('/lobby');
+    navigate('/login');
   };
 
   // Gradient animation for buttons

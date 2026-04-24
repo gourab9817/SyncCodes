@@ -1,0 +1,652 @@
+================================================================================
+  SYNCCODES — CODEBASE REVIEW & BUG REPORT
+  Generated: 2026-04-23
+  Reviewer: Claude Code (Sonnet 4.6)
+================================================================================
+
+PROJECT: Real-time collaborative coding platform
+STACK:   Node.js / Express / Socket.IO / Prisma / PostgreSQL (Neon)
+         React 18 / CodeMirror 5 / Y.js / WebRTC / Konva
+
+--------------------------------------------------------------------------------
+TABLE OF CONTENTS
+  1. Architecture & User Flow
+  2. CRITICAL Bugs
+  3. HIGH Severity Bugs
+  4. MEDIUM Severity Bugs
+  5. LOW Severity Bugs
+  6. Security Issues
+  7. Missing / Incomplete Features
+  8. Production Readiness Issues
+  9. Quick Reference Index
+--------------------------------------------------------------------------------
+
+
+================================================================================
+  1. ARCHITECTURE & USER FLOW
+================================================================================
+
+Flow:
+  / (Landing) → /login → /dashboard → /room/:joinCode
+
+  a. User registers or logs in via /api/auth/register|login
+     - JWT stored in localStorage (access_token + sc_user)
+  b. Dashboard shows owned rooms and user stats
+  c. User creates or joins a room (via joinCode)
+  d. Room.jsx emits socket event "room:join"
+  e. Backend resolves joinCode → room.id, emits "room:join" back, broadcasts "user:joined"
+  f. Y.js + CodeMirror syncs code via yjs:sync-request / yjs:sync-response / yjs:update
+  g. WebRTC peer.js handles video: offer → answer → ICE negotiation
+  h. Whiteboard and Chat run over the same Socket.IO connection
+  i. Chat messages are persisted to DB via chatHandlers.js
+
+Key dual-entry-point problem:
+  - npm start runs backend/server.js (the correct modern server)
+  - vercel.json routes to ./index.js (old legacy monolith — wrong!)
+  - Both files exist; production may run the wrong one entirely.
+
+
+================================================================================
+  2. CRITICAL BUGS
+================================================================================
+
+[C1] SECRETS COMMITTED TO GIT
+  File: backend/.env
+  Description: The .env file containing live credentials is committed to the
+               repository. This exposes:
+               - Neon PostgreSQL DATABASE_URL and DIRECT_URL
+               - JWT_SECRET = "syncodes-jwt-secret-change-in-prod-2024" (placeholder used as real value)
+               - Gemini API key
+  Fix: Rotate ALL credentials immediately. Remove .env from git history.
+       Use `git filter-repo` or BFG Cleaner. Confirm .gitignore includes .env.
+
+[C2] HARDCODED API KEY IN SOURCE CODE
+  File: backend/index.js, line 32
+  Description: Gemini API key AIzaSy... is hardcoded directly in source code
+               (same key as in .env). Anyone with repo access has the key.
+  Fix: Remove key from source. Rotate the key. Use process.env only.
+
+[C3] VERCEL DEPLOYS WRONG (INSECURE) SERVER
+  File: vercel.json
+  Description: vercel.json routes all requests to ./index.js which is the
+               old legacy monolith. This server has:
+               - No authentication on socket events
+               - Global broadcast privacy leaks (io.emit to all connected sockets)
+               - No rate limiting
+               npm start correctly runs server.js, but Vercel runs index.js.
+  Fix: Update vercel.json to point to backend/server.js. Remove index.js or
+       mark it clearly as legacy/unused.
+
+[C4] REMOTE CODE EXECUTION (RCE) VULNERABILITY
+  File: backend/services/codeExecution/localExecutor.js
+  Description: The default code execution backend is "local". This allows ANY
+               visitor to execute arbitrary code (Node, Python, Java, C, C++,
+               Go, Rust) directly on the API host. The host has full access to
+               .env, database credentials, the filesystem, and the network.
+               An attacker can exfiltrate credentials or destroy data.
+  Config:      EXECUTION_BACKEND defaults to "local"; EXECUTION_REQUIRE_AUTH
+               defaults to false.
+  Fix: Change default to EXECUTION_BACKEND=piston (sandboxed). Set
+       EXECUTION_REQUIRE_AUTH=true. Never allow local execution in production.
+       If local is needed for dev, add explicit per-language sandboxing.
+
+[C5] NO AUTHENTICATION ON WEBRTC SIGNALING
+  File: backend/socket/handlers/videoHandlers.js
+  Description: Every WebRTC signaling event (user:call, call:accepted,
+               peer:nego:needed, peer:nego:done, peer:nego:final) has no
+               authentication or room membership check. Any connected socket
+               can send fake signals to any other socketId, enabling:
+               - Forced calls on unsuspecting users
+               - Session hijacking through ICE injection
+               - Denial-of-service on video sessions
+  Fix: Verify sender is in the same room as the target before forwarding any
+       signaling event. Add assertSocketInRoom check.
+
+
+================================================================================
+  3. HIGH SEVERITY BUGS
+================================================================================
+
+[H1] GLOBAL PRESENCE BROADCAST — PRIVACY LEAK
+  File: backend/socket/index.js, lines 178, 196
+  Description: io.emit('new', { clients }) sends ALL connected users' presence
+               to EVERY socket in the server, not just sockets in the same room.
+               Similarly, io.emit('user:left') on disconnect broadcasts to all.
+               User A in Room 1 can see when User B in Room 2 connects/disconnects.
+               Also, the forEach loop emits N times per event (O(n²) traffic).
+  Fix: Replace io.emit with io.to(roomId).emit. Remove the forEach wrapper.
+
+[H2] TOKEN EXPIRY: 15 MINUTES, NO REFRESH ENDPOINT
+  File: backend/routes/auth.js, line 44; backend/config/env.js
+  Description: JWT_EXPIRES_IN is set to 15 minutes in .env, but there is NO
+               refresh token endpoint anywhere in the backend. After 15 minutes,
+               every API call returns 401. The frontend intercepts 401 and
+               redirects to /login. Users are silently logged out mid-session.
+               The DB has a RefreshToken table (in migration) but it is absent
+               from schema.prisma and has no corresponding code.
+  Fix: Implement POST /api/auth/refresh using refresh tokens. Add RefreshToken
+       to schema.prisma. Or extend access token lifetime to 7d and add proper
+       logout/revoke endpoint.
+
+[H3] INTERVIEW QUESTION ROUTE IS BROKEN (ALWAYS 404)
+  File: backend/server.js, line 45-46; client/src/components/ResumeInterviewModal.jsx, line 188
+  Description: The client calls POST /api/generate-questions. The backend mounts
+               the questions router at both /api/questions AND /api/generate-questions.
+               The router only defines /generate and /generate-questions as sub-paths,
+               so the actual resolved paths are:
+               - /api/questions/generate-questions ✓
+               - /api/generate-questions/generate-questions ✓
+               The client calls /api/generate-questions (no suffix) → 404.
+               The AI interview feature is completely broken.
+  Fix: Change the client request URL to /api/questions/generate-questions, OR
+       add an explicit route handler for POST /api/generate-questions in the router.
+
+[H4] CHAT HISTORY NEVER LOADS
+  File: client/src/components/room/ChatPanel.jsx, line 31
+  Description: ChatPanel calls getRoom(roomId) where roomId is the joinCode from
+               the URL (e.g. /room/ABC123). The backend getRoom controller queries
+               by internal database id, not by joinCode. This always returns 404,
+               so chat history is never fetched even though messages are persisted.
+  Fix: Either change ChatPanel to call getRoomByCode(code) (which exists as
+       GET /api/rooms/code/:code), or make getRoom accept both id and joinCode.
+
+[H5] GETROOM / GETROOMMESSAGES: NO OWNERSHIP CHECK
+  File: backend/controllers/roomController.js, lines 42, 84
+  Description: Any authenticated user can fetch any room's details and complete
+               message history by guessing or obtaining the room's internal id.
+               There is no check that the requester owns or has joined the room.
+  Fix: Add a check: verify req.user.id === room.ownerId OR room has a
+       SessionMember entry for req.user.id before returning data.
+
+[H6] OPTIONAL AUTH MIDDLEWARE — RACE CONDITION
+  File: backend/middleware/authenticate.js, lines 58-83
+  Description: optionalAuth calls next() BEFORE the async Neon JWKS jwt.verify
+               callback resolves. The request handler executes without req.user
+               set. ~50ms later, req.user is assigned to an already-responded
+               object. Routes relying on optionalAuth for OAuth users will always
+               treat those users as unauthenticated.
+  Fix: Wrap next() call inside the jwt.verify callback. Convert to async/await.
+
+[H7] SESSION DURATION ALWAYS ZERO
+  File: backend/socket/index.js (room leave handlers); backend/controllers/userController.js
+  Description: The SessionMember table has a leftAt column, but there is NO code
+               anywhere that writes to it. When users leave (socket disconnect,
+               leave:room event, room delete), leftAt is never set. The stats
+               endpoint calculates totalMinutes as SUM of (leftAt - joinedAt),
+               so all users always show 0 minutes.
+  Fix: In the leave:room and disconnecting handlers, update the SessionMember
+       record: prisma.sessionMember.update({ where: {...}, data: { leftAt: new Date() } })
+
+[H8] UNAUTHENTICATED CODE EXECUTION ENABLED BY DEFAULT
+  File: backend/routes/execute.js, line 15
+  Description: env.execution.requireAuth defaults to false. Combined with the
+               local executor default [C4], anyone can hit POST /api/execute/code
+               without a token. Even with Piston, unauthenticated quota abuse
+               is trivially possible.
+  Fix: Set requireAuth=true in default config. Use per-user rate limiting, not
+       just IP-based (IPs are spoofable/shared behind NAT).
+
+[H9] LOBBY — CREATE SESSION NEVER PERSISTS TO DATABASE
+  File: client/src/components/LobbyPage.jsx, lines 33, 47
+  Description: When a user creates a new session in LobbyPage, the code generates
+               a random UUID and emits room:join directly via socket. It never
+               calls the backend REST API to create a room record in the database.
+               The socket server resolves joinCode → room.id via DB lookup, finds
+               nothing, and returns room:join:error. The create session flow is
+               entirely broken.
+  Fix: Call POST /api/rooms to create the room first, then use the returned
+       joinCode to navigate to /room/:joinCode and emit the socket join.
+
+[H10] SOCKET SYNC:CODE — NO AUTH OR ROOM CHECK
+  File: backend/socket/handlers/codeHandlers.js, lines 24-31
+  Description: The sync:code handler (used for code sync between peers) does not
+               verify the sender is in the target room, nor that they are
+               authenticated. An attacker can force-push arbitrary code to any
+               target socketId or corrupt another user's editor.
+  Fix: Add assertSocketInRoom before processing. Check socket.userId exists.
+
+
+================================================================================
+  4. MEDIUM SEVERITY BUGS
+================================================================================
+
+[M1] ROOM.JSX — EMAIL CRASH (NULL/EMPTY)
+  File: client/src/components/Room.jsx, lines 486, 523, 580, 616
+  Description: Multiple places use email[0].toUpperCase() or remoteEmail[0].
+               If email is empty string or remoteEmail is null (common when peer
+               disconnects), this throws TypeError and crashes the entire Room UI.
+  Fix: Add guard: (email || '?')[0].toUpperCase()
+
+[M2] ROOM.JSX — STREAM CLEANUP STALE CLOSURE
+  File: client/src/components/Room.jsx, lines 178-182
+  Description: The useEffect cleanup function captures myStream from state at
+               the time of effect creation. If component unmounts before myStream
+               is set (e.g., camera denied), the cleanup captures undefined and
+               the stream is never stopped, keeping the camera light on.
+  Fix: Use a ref (useRef) instead of useState to hold myStream so the cleanup
+       always accesses the current value.
+
+[M3] ROOM.JSX — ARBITRARY 2-SECOND TIMER FOR STREAM SEND
+  File: client/src/components/Room.jsx, line 249
+  Description: After accepting an incoming call, a 2-second setTimeout is used
+               to call sendStreams(). This is a race condition: if camera/mic
+               takes longer than 2 seconds to initialise, no tracks are added.
+               On slow devices, the other peer gets a call with no video/audio.
+  Fix: Wait for the getUserMedia promise to resolve before calling sendStreams().
+       Use async/await in the call handler.
+
+[M4] EDITOR — WRONG CODEMIRROR HEIGHT ARGUMENT
+  File: client/src/components/EditorPage.js, line 102
+  Description: cm.setSize("100%", "h-full") passes "h-full" as the height.
+               CodeMirror expects a CSS value like "100%" or a number of pixels.
+               "h-full" is a Tailwind class name, not valid CSS. The editor
+               renders with 0 height on many browsers (invisible).
+  Fix: cm.setSize("100%", "100%") or calculate the pixel height from the
+       container's offsetHeight.
+
+[M5] EDITOR — 500ms RACE CONDITION OVERWRITES REMOTE STATE
+  File: client/src/components/EditorPage.js, lines 141-143
+  Description: After emitting yjs:sync-request, the client waits 500ms. If no
+               sync response arrives in time (slow network, slow server), it
+               seeds a default code snippet and broadcasts it as a Y.js update,
+               overwriting whatever code already existed in the room. On slow
+               connections this is a guaranteed data loss event.
+  Fix: Use a proper timeout with retry or flag. Only seed if the document is
+       completely empty after sync, not after an arbitrary timer.
+
+[M6] CODEMIRROR / SOCKET NULL GUARD MISSING IN EDITORPAGE
+  File: client/src/components/EditorPage.js, lines 165, 181-186
+  Description: socket.on("output", ...) and other socket listeners are registered
+               inside a useEffect that may run when socket is still null (initial
+               render), causing a runtime crash.
+  Fix: Add if (!socket) return; at the top of any useEffect that uses socket.
+
+[M7] FORGOTPASSWORD — COMPLETELY FAKE
+  File: client/src/pages/auth/ForgotPassword.jsx
+  Description: The forgot password page shows "Reset link sent!" to the user
+               regardless of input, with no backend call at all. No reset token
+               is generated, no email is sent. Users who forget their password
+               cannot recover their account.
+  Fix: Implement POST /api/auth/forgot-password that generates a secure reset
+       token (crypto.randomBytes), stores it with an expiry, and sends an email
+       via nodemailer using the SMTP_* env vars already in .env.example.
+
+[M8] PROFILE — PASSWORD RESET SHOWS ERROR + SUCCESS SIMULTANEOUSLY
+  File: client/src/pages/Profile.jsx, lines 31-36
+  Description: handlePasswordReset sets a server error message saying "not wired
+               on this frontend yet", and simultaneously shows a success banner.
+               The user sees contradictory UI: green success AND an error message.
+  Fix: Either implement real password change or remove the UI. Do not mix
+       success and error states.
+
+[M9] AUTH CALLBACK HARDCODED TO LOCALHOST
+  File: client/src/pages/auth/AuthCallback.jsx, line 29
+  Description: The OAuth callback uses hardcoded http://localhost:8000 as the API
+               URL. This will fail silently in any non-local environment.
+  Fix: Use process.env.REACT_APP_API_URL (already used in api.js) instead.
+
+[M10] WHITEBOARD — FULL STROKE ARRAY SENT ON EVERY MOUSEMOVE
+  File: client/src/components/Whiteboard.jsx, lines 151-164
+  Description: Every mousemove event during drawing emits the complete strokes
+               array via socket. For a drawing with 1000 points, each additional
+               point sends 1001 points of data. This creates O(n²) network
+               traffic and causes extreme lag for complex drawings.
+  Fix: Emit only the delta (new point or stroke segment) and let peers reconstruct.
+       Or throttle to emit at most once per 50ms.
+
+[M11] WHITEBOARD — REMOTE UPDATE DESTROYS LOCAL IN-PROGRESS DRAWING
+  File: client/src/components/Whiteboard.jsx, lines 108-113
+  Description: When a remote whiteboard update arrives, the handler calls
+               setLines(remoteData), replacing ALL local lines including any
+               stroke the user is currently drawing. Mid-stroke, the drawing
+               disappears and is replaced with the remote snapshot.
+  Fix: Do not apply remote updates while isDrawing is true. Queue them and
+       apply when the local stroke completes.
+
+[M12] SESSIONS — DELETE WITHOUT ERROR HANDLING
+  File: client/src/pages/Sessions.jsx, lines 37-41
+  Description: handleDelete calls deleteRoom(id) without try/catch. If the API
+               call fails (network error, auth issue), the UI may still remove
+               the room from the list (optimistic update), causing the displayed
+               state to diverge from the database.
+  Fix: Wrap in try/catch. Only remove from UI after confirmed server response.
+
+[M13] RATE LIMIT BROKEN BEHIND PROXY
+  File: backend/server.js, line 34
+  Description: express-rate-limit is configured but app.set('trust proxy', ...) is
+               missing. Behind Nginx, Vercel, or any reverse proxy, the rate
+               limiter sees the proxy IP for all requests (everyone shares one
+               bucket) and express-rate-limit v7+ throws a ValidationError for
+               unexpected X-Forwarded-For headers.
+  Fix: Add app.set('trust proxy', 1) before setting up rate limiting.
+
+[M14] SPA CATCH-ALL RETURNS HTML FOR UNKNOWN /API/* PATHS
+  File: backend/server.js, line 51
+  Description: app.get('*', ...) returns index.html for any unmatched path
+               including /api/nonexistent. API clients get an HTML 200 response
+               instead of a JSON 404. This breaks programmatic error handling.
+  Fix: Add a 404 JSON handler specifically for /api/* routes before the catch-all:
+       app.use('/api/*', (req, res) => res.status(404).json({ error: 'Not found' }))
+
+[M15] JWT_SECRET NOT VALIDATED AT STARTUP
+  File: backend/config/env.js
+  Description: The config validation only requires DATABASE_URL and NEON_JWKS_URL.
+               If JWT_SECRET is missing from .env, the server starts normally
+               but crashes on the first login attempt with a cryptic error.
+  Fix: Add JWT_SECRET to required env variables in config validation.
+
+[M16] SCHEMA / MIGRATION DRIFT
+  File: backend/prisma/schema.prisma vs backend/prisma/migrations/*/migration.sql
+  Description: The initial migration SQL creates columns (googleId, resetToken,
+               resetExpiry) and a full RefreshToken table that do not exist in
+               schema.prisma. Running `prisma migrate status` will report drift.
+               Prisma generate will not create the models for these columns.
+  Fix: Either add the missing models to schema.prisma or create a new migration
+       that removes the extra columns. Keep schema.prisma as the source of truth.
+
+[M17] DOUBLE CHAT MESSAGE PROCESSING
+  File: client/src/components/Room.jsx, lines 354-358; client/src/components/room/ChatPanel.jsx
+  Description: Room.jsx and ChatPanel.jsx both register socket.on('message:new')
+               listeners. Every incoming chat message is processed twice:
+               once by Room (increments unread count) and once by ChatPanel
+               (renders the message AND increments unread count). Unread badge
+               shows double the actual count.
+  Fix: Register the message:new listener in only one place. Pass the handler
+       down as a prop or use a shared context.
+
+[M18] EMAIL SPOOFING ON SOCKET (DEV MODE)
+  File: backend/socket/index.js, lines 123-127
+  Description: When socketAuthRequired=false (dev default), users can pass any
+               email they want in socket events without verification. Any user
+               can impersonate any other user's email in the room.
+  Fix: Always validate email against the authenticated session. In dev, at minimum
+       log a warning when email mismatches token.
+
+[M19] LOBBY — GENERATED UUID NEVER MATCHES A ROOM
+  File: client/src/components/LobbyPage.jsx, line 47
+  Description: generateRoomId() returns a UUID like "a1b2c3d4-...". The backend
+               socket handler looks up this code via DB joinCode field. Since no
+               room was created (see H9), this UUID matches nothing and the server
+               returns room:join:error every time.
+  Fix: See H9 — create the room via REST API first, use the server-generated joinCode.
+
+[M20] PRISMA SCHEMA — STACKAUTHID UNIQUE NULL COLLISION
+  File: backend/prisma/schema.prisma, line 20
+  Description: stackAuthId is optional (String?) with @unique. In PostgreSQL,
+               multiple NULL values in a UNIQUE column are allowed (standard
+               behavior). But if the application logic ever tries to upsert by
+               stackAuthId=null, Prisma will throw a unique constraint violation
+               or match the wrong record.
+  Fix: Ensure all upserts by stackAuthId always have a non-null value. Document
+       this constraint. Or use a partial unique index in raw SQL.
+
+
+================================================================================
+  5. LOW SEVERITY BUGS
+================================================================================
+
+[L1] SOCKETPROVIDER FILENAME: DOUBLE EXTENSION
+  File: client/src/utils/SocketProvider.js.js
+  Description: Filename has double ".js.js" extension. Works on Linux (imports
+               resolve by exact filename), but breaks on Windows / case-insensitive
+               filesystems and confuses tooling (TypeScript, ESLint, bundlers).
+  Fix: Rename to SocketProvider.js and update the import in App.js.
+
+[L2] IMPORT.META IN CRA (WEBPACK) PROJECT
+  File: client/src/utils/SocketProvider.js.js, line 6
+  Description: Uses import.meta.env which is a Vite idiom. Create React App uses
+               Webpack which does not define import.meta.env. This silently
+               returns undefined, causing the socket URL to be undefined and the
+               socket to connect to the wrong host.
+  Fix: Use process.env.REACT_APP_API_URL instead.
+
+[L3] WINDOWS-ONLY START SCRIPT
+  File: client/package.json, line ~40
+  Description: "start": "set NODE_OPTIONS=--openssl-legacy-provider && react-scripts start"
+               The `set` command only works in Windows CMD. On Linux/Mac (and CI),
+               this silently ignores the env var, causing failures with Node 17+.
+  Fix: Use cross-env package: "start": "cross-env NODE_OPTIONS=--openssl-legacy-provider react-scripts start"
+
+[L4] DEAD CODE FILES IN CLIENT
+  Files:
+    - client/src/components/Lobby.jsx (not imported by App.js; LobbyPage is used)
+    - client/src/components/Home.jsx (not imported by App.js; LandingPage is used)
+    - client/src/components/videocall.jsx (placeholder)
+    - client/src/components/DialogBox.jsx (fully commented out but imported by Room.jsx)
+    - client/src/components/tempCodeRunnerFile.js (empty stub)
+    - client/src/stack.js (@stackframe/stack bootstrap; nothing imports stackApp)
+  Description: These files increase bundle size, create naming confusion (both
+               Lobby.jsx and LobbyPage.jsx exist with overlapping roles and
+               duplicate ThemeProvider), and DialogBox.jsx being imported but
+               fully commented out means the import resolves to undefined.
+  Fix: Delete all unused files. Remove the import of DialogBox from Room.jsx.
+
+[L5] GOOGLE ANALYTICS INSIDE REACT RENDER
+  File: client/src/components/Home.jsx, lines 184-192
+  Description: Google Analytics script tags are injected inside the JSX render
+               method (not in a useEffect or index.html). They re-run on every
+               render, causing duplicate page view events and potentially multiple
+               gtag configurations.
+  Fix: Move GA initialization to public/index.html or a one-time useEffect.
+
+[L6] DUPLICATE THEMECONTEXT
+  Files: client/src/context/ThemeContext.jsx and client/src/components/Lobby.jsx
+  Description: Both files define and export a ThemeContext. If any component
+               imports from the wrong path, theme state will diverge (components
+               using different contexts won't see each other's theme changes).
+  Fix: Delete the ThemeContext from Lobby.jsx. Use only the one in /context/.
+
+[L7] ROOM SOFT-DELETE — OWNER CANNOT SEE DELETED ROOMS
+  File: backend/controllers/roomController.js, lines 71-81
+  Description: deleteRoom sets isActive=false. listRooms filters WHERE isActive=true.
+               There is no endpoint to list or restore soft-deleted rooms.
+               The soft-delete provides no recovery value in the current implementation.
+  Fix: Either implement hard delete (and remove isActive entirely) or add a
+       trash/restore endpoint and show deleted rooms in the UI.
+
+[L8] NODEMON IN PRODUCTION START SCRIPT
+  File: backend/package.json
+  Description: "start": "nodemon server.js" — nodemon is a dev tool that restarts
+               on file changes. In production this wastes memory and can cause
+               unexpected restarts. nodemon is also in devDependencies, meaning it
+               won't install if NODE_ENV=production.
+  Fix: Add "start:prod": "node server.js" and use that in production. Update any
+       deployment configs accordingly.
+
+[L9] NO GRACEFUL SHUTDOWN HANDLER
+  File: backend/server.js
+  Description: There is no SIGTERM/SIGINT handler. When the process is killed
+               (e.g., by a container orchestrator), Prisma connections are not
+               closed, in-flight requests are dropped, and Socket.IO clients are
+               not notified. This causes connection pool leaks on the DB side.
+  Fix: Add process.on('SIGTERM', ...) that closes the HTTP server, waits for
+       connections to drain, and calls prisma.$disconnect().
+
+[L10] WHITEBOARD SIZE CHECK — CHARACTERS VS BYTES
+  File: backend/socket/handlers/whiteboardHandlers.js, line 10
+  Description: The size check uses JSON.stringify(strokes).length which counts
+               JavaScript UTF-16 code units (characters), not bytes. Emoji or
+               multi-byte characters count as 1 character but 2-4 bytes. The
+               1 MB limit may be bypassed with Unicode-heavy content.
+  Fix: Use Buffer.byteLength(JSON.stringify(strokes), 'utf8') for an accurate byte count.
+
+[L11] METRICS — HARDCODED MAX VALUES
+  File: client/src/pages/Metrics.jsx, line 93 (approx)
+  Description: Progress bars for sessions, messages, and collaborations use
+               hardcoded maximums (50, 500, 20). A power user who exceeds these
+               will see bars at 100% with no indication of their real activity.
+  Fix: Compute the max dynamically from the actual data, or remove the
+       progress bar in favor of raw numbers.
+
+[L12] METRICS — INVALID DATE ON MISSING CREATEDATAT
+  File: client/src/pages/Metrics.jsx
+  Description: new Date(user?.createdAt) renders "Invalid Date" if user is null
+               or createdAt is missing (e.g., during initial load).
+  Fix: Add a guard: user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Unknown'
+
+[L13] RATE LIMITER — SLIDING WINDOW USES DATE.NOW()
+  File: backend/utils/rateLimiter.js (createSlidingWindowLimiter)
+  Description: Date.now() is not monotonic. System clock adjustments (NTP sync,
+               DST changes) can cause the sliding window to behave incorrectly:
+               either allowing more requests than the limit or blocking valid ones.
+  Fix: Use process.hrtime.bigint() for the internal counter, falling back to
+       Date.now() only for the wall-clock window reset.
+
+[L14] FALLBACK EMAIL COLLISION IN USER SYNC SERVICE
+  File: backend/services/userSyncService.js, lines 10-14
+  Description: When an OAuth user has no email, the service generates
+               ${stackAuthId}@neon.auth as a fallback email. If a real user
+               registers with an address ending in @neon.auth (unlikely but
+               possible), the unique constraint on email will throw a conflict.
+  Fix: Use a more unique namespace: ${stackAuthId}@oauth.synccodes.internal
+       and add a comment explaining this is a synthetic non-deliverable address.
+
+[L15] NO CI/CD PIPELINE
+  File: repository root
+  Description: No GitHub Actions, no test automation, no build validation on PR.
+               The single test file (backend/test/socketGuards.test.js) is never
+               automatically run. The CRA default test (App.test.js) is untouched.
+  Fix: Add a GitHub Actions workflow that runs npm test and npm run build on
+       every push and PR to main.
+
+
+================================================================================
+  6. SECURITY ISSUES SUMMARY
+================================================================================
+
+  Severity | ID  | File                                           | Issue
+  ---------+-----+------------------------------------------------+---------------------------
+  CRITICAL | S1  | backend/.env                                   | Live credentials in git
+  CRITICAL | S2  | backend/index.js:32                            | Hardcoded Gemini API key
+  CRITICAL | S3  | backend/services/codeExecution/localExecutor.js| Default = RCE on host
+  CRITICAL | S4  | backend/socket/handlers/videoHandlers.js       | No auth on WebRTC signaling
+  HIGH     | S5  | backend/socket/index.js:178,196                | Global io.emit leaks presence
+  HIGH     | S6  | backend/middleware/authenticate.js:58-83       | optionalAuth TOCTOU (no await)
+  HIGH     | S7  | backend/controllers/roomController.js:42,84    | No ownership check on data access
+  HIGH     | S8  | backend/routes/execute.js                      | Unauth code exec default
+  HIGH     | S9  | backend/routes/auth.js                         | No brute-force protection on login
+  HIGH     | S10 | backend/.env JWT_SECRET                        | Placeholder used as real secret
+  MEDIUM   | S11 | backend/server.js:32                           | Helmet CSP disabled
+  MEDIUM   | S12 | client/src/context/AuthContext.jsx             | JWT stored in localStorage
+  MEDIUM   | S13 | backend/socket/handlers/chatHandlers.js        | No XSS filtering on chat content
+  MEDIUM   | S14 | backend/controllers/userController.js          | Avatar URL not validated (scheme)
+  MEDIUM   | S15 | backend/routes/questions.js                    | Large PDF upload → potential OOM
+  LOW      | S16 | client/src/pages/auth/AuthCallback.jsx:29      | Hardcoded localhost URL
+  LOW      | S17 | n/a                                            | No CSRF on mutating endpoints
+  LOW      | S18 | backend/server.js                              | No `trust proxy` for rate limiting
+
+
+================================================================================
+  7. MISSING / INCOMPLETE FEATURES
+================================================================================
+
+  Feature                    | Status       | Notes
+  ---------------------------+--------------+--------------------------------------------
+  Forgot Password            | Fake         | Shows success but does nothing [M7]
+  Password Change (Profile)  | Stub         | Error + success shown simultaneously [M8]
+  Google OAuth               | Dead code    | Routes commented out; UI still references it
+  Session Duration Tracking  | Broken       | leftAt never written; totalMinutes = 0 [H7]
+  Refresh Tokens             | DB only      | Table exists in migration but not in schema or code [H2]
+  Room Access Control        | None         | Anyone authenticated can read any room [H5]
+  Room Kick / Ban            | Missing      | No way to remove user from a room
+  Whiteboard Persistence     | None         | Lost on refresh; not saved to DB
+  Y.js Document Persistence  | None         | Lost on refresh; no server-side storage
+  Email Verification         | Column only  | emailVerified always false, never checked
+  Per-user Code Exec Quota   | IP only      | IP quota bypassed by reconnecting
+  Chat History Pagination    | None         | All messages returned at once; no limit
+  Session List (joined rooms)| Owner only   | Members who joined but don't own see nothing
+  JD File in Interview Modal | Display only | Uploaded but not used in prompt
+  Code Language Installation | Silent fail  | Local executor fails silently if lang missing
+  Tests                      | Minimal      | 1 test in backend; CRA default in frontend
+  CI/CD                      | None         | No automation [L15]
+  Deployment Config          | Broken       | vercel.json points to wrong file [C3]
+
+
+================================================================================
+  8. PRODUCTION READINESS ISSUES
+================================================================================
+
+  [P1] TWO ENTRY POINTS — WRONG ONE DEPLOYS TO VERCEL
+       vercel.json → index.js (insecure legacy); npm start → server.js (correct).
+       Fix: Update vercel.json. Consider removing index.js.
+
+  [P2] SOCKET.IO INCOMPATIBLE WITH VERCEL SERVERLESS
+       Vercel serverless functions have no persistent connection support.
+       Socket.IO requires a long-lived connection; it will silently degrade to
+       long-polling (which also doesn't work well on Vercel) or fail entirely.
+       Fix: Use a persistent server (Railway, Render, Fly.io, EC2, etc.) or
+       adopt Vercel's edge WebSocket support with significant rework.
+
+  [P3] IN-MEMORY STATE — NOT HORIZONTALLY SCALABLE
+       emailToSocketIdMap, socketidToEmailMap, and the socket rate limiter all
+       live in process memory. With multiple server instances, users on different
+       instances cannot communicate. Socket.IO pub/sub (Redis adapter) would be
+       needed for horizontal scaling.
+
+  [P4] NODEMON AS PRODUCTION SERVER [L8]
+
+  [P5] NO GRACEFUL SHUTDOWN [L9]
+
+  [P6] NO REQUEST LOGGING
+       Express has no morgan or structured request logging. winston is wired but
+       only used in specific controllers. Debugging production issues requires
+       guesswork.
+       Fix: Add morgan('combined') middleware. Add request ID headers (uuid per
+       request). Ensure all errors log with the request ID.
+
+  [P7] NO MONITORING OR OBSERVABILITY
+       No Sentry, no metrics endpoint beyond /health. /health does not check DB
+       connectivity or socket adapter status.
+       Fix: Add Sentry SDK. Enhance /health to ping Prisma and report socket
+       room count.
+
+  [P8] BUNDLE SIZE
+       Client pulls in MUI v6, CodeMirror 5, y-codemirror.next (v6 binding for
+       v6, not v5), Konva, react-player, plus dead deps (@liveblocks, @stackframe).
+       Fix: Remove unused packages. Use code splitting for heavy components.
+
+  [P9] PRISMA MIGRATION DRIFT [M16]
+
+  [P10] DOCKER / INFRA DOCS MISSING
+        Only Piston has a Dockerfile. The Node backend has no Dockerfile. The
+        README and QUICK_START disagree on setup steps.
+
+
+================================================================================
+  9. QUICK REFERENCE — PRIORITY ORDER FOR FIXES
+================================================================================
+
+  Priority | ID  | Summary
+  ---------+-----+--------------------------------------------------------------------
+  P0       | C1  | Rotate ALL secrets; remove .env from git history (do this NOW)
+  P0       | C2  | Remove hardcoded Gemini key; rotate it
+  P0       | C3  | Fix vercel.json → server.js
+  P0       | C4  | Disable local code executor in production; enable requireAuth
+  P0       | C5  | Add room membership check to all WebRTC signaling events
+  P1       | H1  | Fix global io.emit → scoped to room
+  P1       | H2  | Implement refresh token endpoint or extend access token lifetime
+  P1       | H3  | Fix /api/generate-questions route path mismatch
+  P1       | H4  | Fix chat history load (joinCode vs id)
+  P1       | H5  | Add ownership/membership check to getRoom, getRoomMessages
+  P1       | H6  | Fix optionalAuth async race condition
+  P1       | H7  | Write leftAt on session leave; fix totalMinutes stat
+  P1       | H8  | Require auth for code execution by default
+  P1       | H9  | Create room via REST before socket join in LobbyPage
+  P1       | H10 | Add auth + room check to sync:code socket event
+  P2       | M1  | Guard email[0] / remoteEmail[0] from null crash
+  P2       | M4  | Fix CodeMirror setSize height argument
+  P2       | M5  | Fix Y.js sync race (500ms timer overwrites remote state)
+  P2       | M7  | Implement real forgot password (or remove the UI stub)
+  P2       | M10 | Throttle whiteboard socket emissions
+  P2       | M13 | Add trust proxy; fix rate limiting
+  P3       | L1  | Rename SocketProvider.js.js → SocketProvider.js
+  P3       | L2  | Replace import.meta.env with process.env.REACT_APP_*
+  P3       | L3  | Fix Windows-only start script (use cross-env)
+  P3       | L4  | Delete all dead code files
+  P3       | L8  | Use node (not nodemon) in production start script
+  P3       | L9  | Add graceful shutdown (SIGTERM handler)
+  P3       | L15 | Add CI/CD pipeline (GitHub Actions)
+
+================================================================================
+  END OF REPORT
+================================================================================

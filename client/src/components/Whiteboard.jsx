@@ -105,9 +105,10 @@ const Whiteboard = ({ isOpen, onClose, darkMode, roomId }) => {
 
   // Listen for whiteboard updates from other users
   useEffect(() => {
+    if (!socket) return;
+
     const handleWhiteboardUpdate = ({ strokes }) => {
       if (strokes && Array.isArray(strokes)) {
-        // Directly use the received strokes - they contain absolute coordinates
         setLines(strokes);
       }
     };
@@ -128,6 +129,7 @@ const Whiteboard = ({ isOpen, onClose, darkMode, roomId }) => {
   }, [socket]);
 
   const emitWhiteboardUpdate = useCallback((newLines) => {
+    if (!socket) return;
     socket.emit('whiteboard:update', { roomId, strokes: newLines });
   }, [socket, roomId]);
 
@@ -180,7 +182,7 @@ const Whiteboard = ({ isOpen, onClose, darkMode, roomId }) => {
     setLines([]);
     setHistory([]);
     setHistoryIndex(-1);
-    socket.emit('whiteboard:clear', { roomId });
+    if (socket) socket.emit('whiteboard:clear', { roomId });
   }, [socket, roomId]);
 
   const undo = useCallback(() => {

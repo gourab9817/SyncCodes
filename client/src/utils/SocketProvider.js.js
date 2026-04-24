@@ -1,46 +1,50 @@
-// src/context/SocketProvider.js
-import React, { createContext, useContext, useMemo } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
 import { io } from "socket.io-client";
+import { useAuth } from "../context/AuthContext";
 
-/*-------------------------------------------------------------------*/
-/* 1️⃣  Decide which API endpoint to hit                              */
-/*-------------------------------------------------------------------*/
-/*
-   Priority order
-   ────────────────────────────────────────────────────────────────
-   1.  Vite build       → import.meta.env.VITE_API_URL
-   2.  CRA / Webpack    → process.env.REACT_APP_API_URL
-   3.  Fallback local   → http://localhost:8000
-*/
 const ENDPOINT =
-  // Vite ‑ guard against CRA where import.meta is undefined
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) ||
-  // CRA / Webpack
   process.env.REACT_APP_API_URL ||
-  // Default for local dev
   "http://localhost:8000";
 
-/*-------------------------------------------------------------------*/
-/* 2️⃣  Context boiler‑plate                                         */
-/*-------------------------------------------------------------------*/
 const SocketContext = createContext(null);
 
 export const useSocket = () => useContext(SocketContext);
 
+/**
+ * Must render inside AuthProvider so the socket reconnects when login state changes.
+ */
 export const SocketProvider = ({ children }) => {
-  // useMemo ensures the client is created only once
-  const socket = useMemo(
-    () =>
-      io(ENDPOINT, {
-        transports: ["websocket"], // keeps things lean
-        withCredentials: true,     // CORS‑friendly if cookies ever matter
-      }),
-    [] // ←  no deps ⇒ runs exactly once
-  );
+  const { user } = useAuth();
+  const [socket, setSocket] = useState(null);
+
+  useEffect(() => {
+    const token = localStorage.getItem("neon_access_token");
+
+    const newSocket = io(ENDPOINT, {
+      transports: ["websocket"],
+      withCredentials: true,
+      auth: { token: token || null },
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+    });
+
+    newSocket.on("connect_error", (err) => {
+      if (err?.message === "auth_required" || err?.message === "auth_invalid") {
+        console.warn("Socket auth failed:", err.message);
+      }
+    });
+
+    setSocket(newSocket);
+
+    return () => {
+      newSocket.removeAllListeners();
+      newSocket.close();
+    };
+  }, [user?.id]);
 
   return (
-    <SocketContext.Provider value={socket}>
-      {children}
-    </SocketContext.Provider>
+    <SocketContext.Provider value={socket}>{children}</SocketContext.Provider>
   );
 };

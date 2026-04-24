@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>SyncCode — Collaborative Coding</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-family: 'Inter', sans-serif; }
+  body { background: var(--bg); color: var(--text); transition: background .25s, color .25s; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+  @keyframes slideIn { from{opacity:0;transform:translateX(16px)} to{opacity:1;transform:none} }
+  select { appearance: none; }
+
+  /* Tweaks panel */
+  #tweaks-panel {
+    display: none;
+    position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 20px; width: 260px;
+    box-shadow: var(--shadow-lg); font-family: 'Inter', sans-serif;
+    animation: slideIn .2s ease;
+  }
+  #tweaks-panel.open { display: block; }
+  .tweak-row { margin-bottom: 14px; }
+  .tweak-label { font-size: 11px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; display: block; }
+</style>
+</head>
+<body>
+<script src="components/theme.js"></script>
+<script type="text/babel" src="components/Nav.jsx"></script>
+<script type="text/babel" src="components/Landing.jsx"></script>
+<script type="text/babel" src="components/Auth.jsx"></script>
+<script type="text/babel" src="components/Dashboard.jsx"></script>
+<script type="text/babel" src="components/Sessions.jsx"></script>
+<script type="text/babel" src="components/Metrics.jsx"></script>
+<script type="text/babel" src="components/SessionRoom.jsx"></script>
+<script type="text/babel" src="components/JoinSession.jsx"></script>
+
+<div id="root"></div>
+
+<div id="tweaks-panel">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <span style="font-family:'Poppins',sans-serif;font-weight:700;font-size:14px;color:var(--text)">Tweaks</span>
+    <button id="tweaks-close" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--text3)">×</button>
+  </div>
+  <div class="tweak-row">
+    <label class="tweak-label">Accent Color</label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div class="swatch" data-color="#FF6B5B" style="width:24px;height:24px;border-radius:6px;background:#FF6B5B;cursor:pointer;border:2px solid transparent"></div>
+      <div class="swatch" data-color="#1DB8A3" style="width:24px;height:24px;border-radius:6px;background:#1DB8A3;cursor:pointer;border:2px solid transparent"></div>
+      <div class="swatch" data-color="#A78BFA" style="width:24px;height:24px;border-radius:6px;background:#A78BFA;cursor:pointer;border:2px solid transparent"></div>
+      <div class="swatch" data-color="#FFD66B" style="width:24px;height:24px;border-radius:6px;background:#FFD66B;cursor:pointer;border:2px solid transparent"></div>
+      <div class="swatch" data-color="#608547" style="width:24px;height:24px;border-radius:6px;background:#608547;cursor:pointer;border:2px solid transparent"></div>
+    </div>
+  </div>
+  <div class="tweak-row">
+    <label class="tweak-label">Border Radius</label>
+    <input type="range" id="radius-slider" min="0" max="24" step="2" value="12"
+      style="width:100%;accent-color:var(--coral)"/>
+    <span id="radius-val" style="font-size:11px;color:var(--text3)">12px</span>
+  </div>
+  <div class="tweak-row">
+    <label class="tweak-label">Theme</label>
+    <div style="display:flex;gap:8px">
+      <button id="tweak-light" style="flex:1;padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:12px;cursor:pointer;font-family:'Inter',sans-serif;font-weight:600">☀ Light</button>
+      <button id="tweak-dark" style="flex:1;padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:12px;cursor:pointer;font-family:'Inter',sans-serif;font-weight:600">🌙 Dark</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "accentColor": "#FF6B5B",
+  "borderRadius": 12,
+  "darkBg": "#ffffff"
+}/*EDITMODE-END*/;
+</script>
+<script type="text/babel">
+
+const USER = { name: 'Alex Kim', email: 'alex@synccode.app' };
+
+function App() {
+  const [page, setPage] = React.useState(() => localStorage.getItem('sc_page') || 'landing');
+  const [theme, setTheme] = React.useState(() => localStorage.getItem('sc_theme') || 'light');
+  const [currentSession, setCurrentSession] = React.useState(null);
+
+  React.useEffect(() => {
+    applyTheme(theme);
+  }, []);
+
+  const navigate = (p) => {
+    setPage(p);
+    localStorage.setItem('sc_page', p);
+  };
+
+  const setThemeAndSave = (t) => {
+    setTheme(t);
+    localStorage.setItem('sc_theme', t);
+    applyTheme(t);
+  };
+
+  const noNav = ['landing','login','signup','room'].includes(page);
+
+  return (
+    <div style={{ minHeight: '100vh', background: 'var(--bg)', animation: 'fadeIn .2s ease' }}>
+      {!noNav && (
+        <Nav page={page} setPage={navigate} theme={theme} setTheme={setThemeAndSave} user={USER} />
+      )}
+      {page === 'landing' && <Landing setPage={navigate} />}
+      {(page === 'login' || page === 'signup') && <Auth mode={page} setPage={navigate} />}
+      {page === 'dashboard' && <Dashboard setPage={navigate} setCurrentSession={setCurrentSession} user={USER} />}
+      {page === 'sessions' && <Sessions setPage={navigate} setCurrentSession={setCurrentSession} />}
+      {page === 'create' && <Sessions setPage={navigate} setCurrentSession={setCurrentSession} />}
+      {page === 'metrics' && <Metrics />}
+      {page === 'join' && <JoinSession setPage={navigate} setCurrentSession={setCurrentSession} />}
+      {page === 'room' && <SessionRoom session={currentSession} setPage={navigate} />}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+
+<script>
+// Tweaks panel
+const panel = document.getElementById('tweaks-panel');
+const closeBtn = document.getElementById('tweaks-close');
+const radiusSlider = document.getElementById('radius-slider');
+const radiusVal = document.getElementById('radius-val');
+
+window.addEventListener('message', e => {
+  if (e.data?.type === '__activate_edit_mode') panel.classList.add('open');
+  if (e.data?.type === '__deactivate_edit_mode') panel.classList.remove('open');
+});
+window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+
+closeBtn.addEventListener('click', () => {
+  panel.classList.remove('open');
+  window.parent.postMessage({ type: '__deactivate_edit_mode' }, '*');
+});
+
+document.querySelectorAll('.swatch').forEach(sw => {
+  sw.addEventListener('click', () => {
+    const c = sw.dataset.color;
+    document.documentElement.style.setProperty('--coral', c);
+    document.documentElement.style.setProperty('--coral-dark', c);
+    document.querySelectorAll('.swatch').forEach(s => s.style.outline = 'none');
+    sw.style.outline = '2px solid var(--text)';
+    sw.style.outlineOffset = '2px';
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { accentColor: c } }, '*');
+  });
+});
+
+radiusSlider.addEventListener('input', () => {
+  const v = radiusSlider.value;
+  radiusVal.textContent = v + 'px';
+  document.documentElement.style.setProperty('--radius', v + 'px');
+  window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { borderRadius: +v } }, '*');
+});
+
+document.getElementById('tweak-light').addEventListener('click', () => {
+  applyTheme('light');
+  window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { darkBg: '#ffffff' } }, '*');
+});
+document.getElementById('tweak-dark').addEventListener('click', () => {
+  applyTheme('dark');
+  window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { darkBg: '#0F172A' } }, '*');
+});
+
+// Apply saved tweaks on load
+(function() {
+  const d = TWEAK_DEFAULTS;
+  if (d.accentColor) document.documentElement.style.setProperty('--coral', d.accentColor);
+  if (d.borderRadius) document.documentElement.style.setProperty('--radius', d.borderRadius + 'px');
+  if (radiusSlider) { radiusSlider.value = d.borderRadius || 12; radiusVal.textContent = (d.borderRadius || 12) + 'px'; }
+  if (d.darkBg === '#ffffff') applyTheme('light'); else applyTheme('dark');
+})();
+</script>
+</body>
+</html>

@@ -5,6 +5,8 @@ import { Video, Users, ArrowRight, Copy, Code, Globe, Sun, Moon } from "lucide-r
 import { v4 as uuid } from "uuid";
 import toast from "react-hot-toast";
 import { Toaster } from "react-hot-toast";
+import { useAuth } from "../context/AuthContext";
+import api from "../services/api";
 
 // Theme context to manage theme state across components
 const ThemeContext = React.createContext();
@@ -65,19 +67,22 @@ const Navbar = () => {
 };
 
 const Lobby = () => {
-  const [createName, setCreateName] = useState("");
-  const [joinName, setJoinName] = useState("");
+  const { user } = useAuth();
+  const defaultName = user?.name || "";
+  const [createName, setCreateName] = useState(defaultName);
+  const [joinName, setJoinName] = useState(defaultName);
   const [createSessionId, setCreateSessionId] = useState("");
   const [joinSessionId, setJoinSessionId] = useState("");
   const [errors, setErrors] = useState({});
+  const [isCreating, setIsCreating] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
   const socket = useSocket();
   const navigate = useNavigate();
   const { darkMode } = useTheme();
 
-  const handleJoinSession = (e) => {
+  const handleJoinSession = async (e) => {
     e.preventDefault();
     
-    // Validate form
     const newErrors = {};
     if (!joinName.trim()) newErrors.joinName = "Name is required";
     if (!joinSessionId.trim()) newErrors.joinSessionId = "Session ID is required";
@@ -87,31 +92,55 @@ const Lobby = () => {
       return;
     }
     
-    // Emit join room event
-    socket.emit("room:join", { email: joinName, room: joinSessionId });
+    setIsJoining(true);
+    
+    try {
+      const response = await api.get(`/api/rooms/code/${joinSessionId}`);
+      
+      if (response.data) {
+        socket.emit("room:join", { email: joinName, room: joinSessionId });
+        toast.success("Joining session...");
+      }
+    } catch (error) {
+      if (error.response?.status === 404) {
+        toast.error('Room not found. Please check the session ID.');
+        setErrors({ joinSessionId: 'Invalid session ID' });
+      } else {
+        toast.error('Failed to validate room. Please try again.');
+      }
+      setIsJoining(false);
+    }
   };
 
-  const handleCreateSession = (e) => {
+  const handleCreateSession = async (e) => {
     e.preventDefault();
     
-    // Validate form
     const newErrors = {};
     if (!createName.trim()) newErrors.createName = "Name is required";
-    if (!createSessionId.trim()) newErrors.createSessionId = "Session ID is required";
     
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       return;
     }
     
-    // Emit join room event with generated room ID
-    socket.emit("room:join", { email: createName, room: createSessionId });
-  };
-
-  const generateRoomId = () => {
-    const newRoomId = uuid();
-    setCreateSessionId(newRoomId);
-    toast.success(`Room ID generated: ${newRoomId}`);
+    setIsCreating(true);
+    
+    try {
+      const response = await api.post('/api/rooms', {
+        name: `${createName}'s Session`,
+        language: 'javascript'
+      });
+      
+      const { joinCode, id } = response.data;
+      setCreateSessionId(joinCode);
+      
+      socket.emit("room:join", { email: createName, room: joinCode });
+      toast.success(`Room created: ${joinCode}`);
+    } catch (error) {
+      console.error('Room creation error:', error);
+      toast.error('Failed to create session. Please try again.');
+      setIsCreating(false);
+    }
   };
 
   const copyRoomIdToClipboard = (idToCopy) => {
@@ -126,18 +155,30 @@ const Lobby = () => {
 
   const handleJoinRoom = useCallback(
     (data) => {
-      const { email, room } = data;
-      navigate(`/room/${room}/${email}`);
+      const { room } = data;
+      navigate(`/room/${room}`);
+      setIsCreating(false);
+      setIsJoining(false);
     },
     [navigate]
   );
 
+  const handleJoinError = useCallback((data) => {
+    const { error } = data;
+    toast.error(error);
+    setErrors({ joinSessionId: error });
+    setIsCreating(false);
+    setIsJoining(false);
+  }, []);
+
   useEffect(() => {
     socket.on("room:join", handleJoinRoom);
+    socket.on("room:join:error", handleJoinError);
     return () => {
       socket.off("room:join", handleJoinRoom);
+      socket.off("room:join:error", handleJoinError);
     };
-  }, [socket, handleJoinRoom]);
+  }, [socket, handleJoinRoom, handleJoinError]);
 
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col items-center p-4">
@@ -185,50 +226,38 @@ const Lobby = () => {
               </div>
             </div>
             
-            {/* Session ID Input for Create */}
-            <div>
-              <label htmlFor="createSessionId" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Session ID (Click on the Generate Session ID to create your room )
-              </label>
-              <div className="relative flex items-center">
-                <input
-                  type="text"
-                  id="createSessionId"
-                  value={createSessionId}
-                  onChange={(e) => setCreateSessionId(e.target.value)}
-                  className={`flex-1 px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700 border ${
-                    errors.createSessionId ? "border-red-500" : "border-gray-300 dark:border-gray-600"
-                  } text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
-                  placeholder="Generate or enter session ID"
-                  readOnly
-                />
-                <button
-                  type="button"
-                  onClick={() => copyRoomIdToClipboard(createSessionId)}
-                  className="ml-2 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 p-2 rounded-lg transition-colors">
-                  <Copy className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-                </button>
+            {createSessionId && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Your Session ID
+                </label>
+                <div className="relative flex items-center">
+                  <input
+                    type="text"
+                    value={createSessionId}
+                    className="flex-1 px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-white focus:outline-none"
+                    readOnly
+                  />
+                  <button
+                    type="button"
+                    onClick={() => copyRoomIdToClipboard(createSessionId)}
+                    className="ml-2 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 p-2 rounded-lg transition-colors">
+                    <Copy className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                  </button>
+                </div>
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                  Share this ID with others to join your session
+                </p>
               </div>
-              {errors.createSessionId && (
-                <p className="mt-1 text-sm text-red-500">{errors.createSessionId}</p>
-              )}
-            </div>
+            )}
             
-            {/* Generate Room ID Button */}
-            <button
-  type="button"
-  onClick={generateRoomId}
-  className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg 
-             flex items-center justify-center gap-2 transition-colors duration-200"
->
-  Generate Session ID <ArrowRight className="w-5 h-5" />
-</button>
             <button
               type="submit"
+              disabled={isCreating}
               className="w-full bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white font-medium py-3 rounded-lg 
-                    flex items-center justify-center gap-2 transition-colors duration-200"
+                    flex items-center justify-center gap-2 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Create New Session <ArrowRight className="w-5 h-5" />
+              {isCreating ? 'Creating...' : 'Create New Session'} <ArrowRight className="w-5 h-5" />
             </button>
             
             {/* Session Options */}
@@ -351,26 +380,18 @@ const Lobby = () => {
             
             <button
               type="submit"
+              disabled={isJoining}
               className="w-full bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white font-medium py-3 rounded-lg 
-                    flex items-center justify-center gap-2 transition-colors duration-200"
+                    flex items-center justify-center gap-2 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Join Session <ArrowRight className="w-5 h-5" />
+              {isJoining ? 'Joining...' : 'Join Session'} <ArrowRight className="w-5 h-5" />
             </button>
           </form>
           
-          {/* Generate ID section */}
+          {/* Info section */}
           <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
             <p className="text-sm text-gray-600 dark:text-gray-400 text-center">
-              Don't have a session ID?{" "}
-              <button
-                onClick={() => {
-                  const newId = uuid();
-                  setJoinSessionId(newId);
-                  toast.success(`Session ID generated: ${newId}`);
-                }}
-                className="text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-300 font-medium">
-                Generate New ID
-              </button>
+              Need a session ID? Ask your teammate to share their session ID from the Create Session panel.
             </p>
           </div>
         </div>
@@ -415,7 +436,7 @@ const Home = () => {
   const navigate = useNavigate();
   
   const handleGetStarted = () => {
-    navigate('/lobby');
+    navigate('/login');
   };
   
 return (
