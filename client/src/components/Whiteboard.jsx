@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Stage, Layer, Line, Rect, Shape } from 'react-konva';
 import { useSocket } from '../utils/SocketProvider.js';
-import useResizeObserver from '@react-hook/resize-observer';
 import { 
   Pencil, 
   Eraser, 

@@ -1,6 +1,9 @@
 import React, { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
+import { getBackendBaseUrl } from '../../config/backendUrl';
+
+const API_URL = getBackendBaseUrl();
 
 const AuthCallback = () => {
   const [searchParams] = useSearchParams();
@@ -26,7 +29,7 @@ const AuthCallback = () => {
         localStorage.setItem('neon_access_token', token);
 
         // Fetch user profile
-        const res = await axios.get('http://localhost:8000/api/users/me', {
+        const res = await axios.get(`${API_URL}/api/users/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
 

@@ -55,8 +55,15 @@ const roomJoinLimiter = createSlidingWindowLimiter(ROOM_JOIN_PER_WINDOW, ROOM_JO
 
 function assertSocketInRoom(socket, roomId) {
   if (!roomId || typeof roomId !== 'string') return 'invalid_room';
-  if (!socket.data.joinedRooms?.has(roomId)) return 'not_in_room';
-  return null;
+  const j = socket.data.joinedRooms;
+  if (j?.has(roomId)) return null;
+  const m = socket.data.roomIdByKey;
+  if (!m) return 'not_in_room';
+  const c =
+    m[roomId] ||
+    (roomId.length <= 20 ? m[roomId.toUpperCase()] || m[roomId.toLowerCase()] : null);
+  if (c && j.has(c)) return null;
+  return 'not_in_room';
 }
 
 /**

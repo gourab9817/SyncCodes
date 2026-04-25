@@ -1,8 +1,9 @@
 const prisma = require('../config/db');
 const { z } = require('zod');
-const { nanoid } = require('nanoid');
+const { customAlphabet } = require('nanoid');
 
-const generateJoinCode = () => nanoid(6).toUpperCase();
+/** 16 uppercase alphanumeric chars — unambiguous, single visual room id for all clients */
+const generateJoinCode = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ', 16);
 
 const createRoom = async (req, res, next) => {
   try {
@@ -107,7 +108,7 @@ const getRoomMessages = async (req, res, next) => {
     const safeLimit = Math.min(parseInt(limit) || 50, 100);
     const messages = await prisma.message.findMany({
       where: { roomId: req.params.id },
-      include: { user: { select: { id: true, name: true, avatar: true } } },
+      include: { user: { select: { id: true, name: true, avatar: true, publicKey: true } } },
       orderBy: { createdAt: 'desc' },
       take: safeLimit,
       ...(cursor && { cursor: { id: cursor }, skip: 1 }),
@@ -161,4 +162,32 @@ const joinRoom = async (req, res, next) => {
   }
 };
 
-module.exports = { createRoom, listRooms, getRoom, getRoomByCode, deleteRoom, getRoomMessages, joinRoom };
+const getRoomMemberKeys = async (req, res, next) => {
+  try {
+    const room = await prisma.room.findUnique({ where: { id: req.params.id } });
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    if (room.ownerId !== req.user.id) {
+      const membership = await prisma.sessionMember.findUnique({
+        where: { userId_roomId: { userId: req.user.id, roomId: room.id } },
+      });
+      if (!membership) return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const members = await prisma.sessionMember.findMany({
+      where: { roomId: room.id },
+      select: { userId: true, user: { select: { publicKey: true } } },
+      distinct: ['userId'],
+    });
+
+    res.json(
+      members
+        .filter((m) => m.user.publicKey)
+        .map((m) => ({ userId: m.userId, publicKey: m.user.publicKey }))
+    );
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = { createRoom, listRooms, getRoom, getRoomByCode, deleteRoom, getRoomMessages, joinRoom, getRoomMemberKeys };

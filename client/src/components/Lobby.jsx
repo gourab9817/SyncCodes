@@ -155,8 +155,8 @@ const Lobby = () => {
 
   const handleJoinRoom = useCallback(
     (data) => {
-      const { room } = data;
-      navigate(`/room/${room}`);
+      const code = data.joinCode || data.room;
+      if (code) navigate(`/room/${code}`);
       setIsCreating(false);
       setIsJoining(false);
     },

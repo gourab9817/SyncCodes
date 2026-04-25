@@ -1,12 +1,10 @@
-import React, { useEffect, useCallback, useState } from "react";
+import React, { useEffect, useCallback, useState, useRef, useMemo } from "react";
 import ReactPlayer from "react-player";
 import peer from "../services/Peer.js";
 import { useSocket } from "../utils/SocketProvider.js";
 import Editor from "./EditorPage.js";
 import { useParams, useNavigate } from "react-router-dom";
 import { toast, Toaster } from "react-hot-toast";
-import Dialog from "./DialogBox.jsx";
-import ExecuteCode from "./ExecuteCode.js";
 import Whiteboard from "./Whiteboard.jsx";
 import ResumeInterviewModal from "./ResumeInterviewModal.jsx";
 import ChatPanel from "./room/ChatPanel.jsx";
@@ -17,12 +15,12 @@ import {
   MicOff,
   Monitor,
   Phone,
+  PhoneOff,
   VideoOff,
   Code,
   Maximize2,
   Minimize2,
   X,
-  Play,
   Moon,
   Sun,
   Copy,
@@ -31,6 +29,7 @@ import {
   FileText,
   MessageSquare
 } from "lucide-react";
+import { normalizeRoomRouteKey, isLikelyCuid } from "../utils/roomKeys.js";
 
 const RoomPage = () => {
   const socket = useSocket();
@@ -39,19 +38,34 @@ const RoomPage = () => {
   const { user } = useAuth();
   const email = user?.email || urlEmail || 'Guest';
   const [roomValid, setRoomValid] = useState(true);
+  const [session, setSession] = useState(null);
+
+  const normalizedRouteKey = useMemo(() => normalizeRoomRouteKey(roomId), [roomId]);
+  // Canonical DB id (after server ack); until then, normalized join code or cuid from the URL.
+  const collabRoomId = session?.id || normalizedRouteKey;
+  const displayJoinCode = session?.joinCode || (isLikelyCuid(roomId) ? null : normalizedRouteKey);
 
   useEffect(() => {
-    if (!socket || !roomId || !user?.email) return;
-    socket.emit('room:join', { email: user.email, room: roomId });
-  }, [socket, roomId, user?.email]);
+    const identity = (user?.email || urlEmail || "").trim();
+    if (!socket || !roomId || !identity) return;
+    const runJoin = () => {
+      if (!socket.connected) return;
+      socket.emit("room:join", { email: identity, room: normalizedRouteKey || roomId });
+    };
+    runJoin();
+    socket.on("connect", runJoin);
+    return () => {
+      socket.off("connect", runJoin);
+    };
+  }, [socket, roomId, normalizedRouteKey, user?.email, urlEmail]);
   const [incomingCall, setIncomingCall] = useState(false);
   const [remoteVideoOff, setRemoteVideoOff] = useState(false);
   const [remoteAudioOff, setRemoteAudioOff] = useState(false);
   const [remoteEmail, setRemoteEmail] = useState(null);
   const [remoteSocketId, setRemoteSocketId] = useState(null);
   const [myStream, setMyStream] = useState();
+  const myStreamRef = useRef(null);
   const [remoteStream, setRemoteStream] = useState(null);
-  const [isCompiling, setIsCompiling] = useState(false);
   // UI-related state
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false);
@@ -64,6 +78,19 @@ const RoomPage = () => {
   const [isResumeModalOpen, setIsResumeModalOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [callStatus, setCallStatus] = useState('idle'); // 'idle' | 'in-call' | 'ended'
+  const [isRoomOwner, setIsRoomOwner] = useState(false);
+  const [showEndCallModal, setShowEndCallModal] = useState(false);
+  const [peerKey, setPeerKey] = useState(0);
+
+  // Ref that mirrors remoteSocketId state but is always in sync synchronously.
+  // Used inside the ICE onIceCandidate callback (a closure) to avoid the race
+  // where the state hasn't propagated before the first ICE candidates fire.
+  const remoteSocketIdRef = useRef(null);
+  const isRoomOwnerRef = useRef(false);
+  useEffect(() => {
+    isRoomOwnerRef.current = isRoomOwner;
+  }, [isRoomOwner]);
 
   // When a user joins, sync code and update state.
   const handleUserJoined = useCallback(
@@ -72,6 +99,7 @@ const RoomPage = () => {
       // already excludes us, but guard here too in case of reconnect edge cases.
       if (!id || id === socket?.id) return;
       console.log(`Email ${email} joined room`, id);
+      remoteSocketIdRef.current = id;
       setRemoteSocketId(id);
       setRemoteEmail(email);
       setShowDialog(true);
@@ -90,13 +118,20 @@ const RoomPage = () => {
       });
       setMyStream(stream);
     }
-    const offer = await peer.getOffer();
+    // Add tracks BEFORE creating the offer so media is included in the initial
+    // SDP. Without this, WebRTC requires an extra renegotiation round-trip
+    // before video/audio starts flowing.
+    peer.addLocalStream(stream);
+    const offer = await peer.createOffer();
     socket.emit("user:call", { to: remoteSocketId, offer, email });
     setShowDialog(false);
   }, [remoteSocketId, socket, email, myStream]);
 
   const handleIncommingCall = useCallback(
     async ({ from, offer, fromEmail }) => {
+      // Set ref synchronously so the ICE handler can forward candidates to the
+      // caller immediately — state updates are async and would miss early candidates.
+      remoteSocketIdRef.current = from;
       setRemoteSocketId(from);
       // Use existing stream if available, otherwise get new one
       let stream = myStream;
@@ -107,34 +142,35 @@ const RoomPage = () => {
         });
         setMyStream(stream);
       }
-      setIncomingCall(true);
       console.log("Incoming Call", from, offer);
       setRemoteEmail(fromEmail);
-      const ans = await peer.getAnswer(offer);
+      // Add tracks BEFORE accepting the offer so they're included in the answer SDP.
+      peer.addLocalStream(stream);
+      const ans = await peer.acceptOffer(offer);
       socket.emit("call:accepted", { to: from, ans });
     },
     [socket, myStream]
   );
 
   const sendStreams = useCallback(() => {
-    if (myStream) {
-      for (const track of myStream.getTracks()) {
-        peer.peer.addTrack(track, myStream);
-      }
-    }
+    // addLocalStream dedupes by track id, so repeated calls during
+    // renegotiation won't throw "sender already exists".
+    if (myStream) peer.addLocalStream(myStream);
   }, [myStream]);
 
   const handleCallAccepted = useCallback(
-    ({ from, ans }) => {
-      peer.setLocalDescription(ans);
+    async ({ from, ans }) => {
+      await peer.acceptAnswer(ans);
       console.log("Call Accepted!");
+      // sendStreams is a no-op here because addLocalStream was already called
+      // before createOffer, but keep it as a safety net for reconnect paths.
       sendStreams();
     },
     [sendStreams]
   );
 
   const handleNegoNeeded = useCallback(async () => {
-    const offer = await peer.getOffer();
+    const offer = await peer.createOffer();
     socket.emit("peer:nego:needed", { offer, to: remoteSocketId });
   }, [remoteSocketId, socket]);
 
@@ -143,18 +179,18 @@ const RoomPage = () => {
     return () => {
       peer.peer.removeEventListener("negotiationneeded", handleNegoNeeded);
     };
-  }, [handleNegoNeeded]);
+  }, [handleNegoNeeded, peerKey]);
 
   const handleNegoNeedIncomming = useCallback(
     async ({ from, offer }) => {
-      const ans = await peer.getAnswer(offer);
+      const ans = await peer.acceptOffer(offer);
       socket.emit("peer:nego:done", { to: from, ans });
     },
     [socket]
   );
 
   const handleNegoNeedFinal = useCallback(async ({ ans }) => {
-    await peer.setLocalDescription(ans);
+    await peer.acceptAnswer(ans);
   }, []);
 
   // Initialize camera on mount (like Google Meet)
@@ -165,7 +201,9 @@ const RoomPage = () => {
           audio: true,
           video: true,
         });
+        myStreamRef.current = stream;
         setMyStream(stream);
+        setCallStatus('in-call');
         console.log("Camera and microphone initialized");
       } catch (error) {
         console.error("Error accessing media devices:", error);
@@ -175,13 +213,11 @@ const RoomPage = () => {
 
     initializeMedia();
 
-    // Cleanup: stop tracks when component unmounts
     return () => {
-      if (myStream) {
-        myStream.getTracks().forEach((track) => track.stop());
-      }
+      myStreamRef.current?.getTracks().forEach((track) => track.stop());
     };
-  }, []); // Only run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Intentionally run once on mount; ref tracks current stream for cleanup
 
   useEffect(() => {
     const trackHandler = (ev) => {
@@ -195,7 +231,28 @@ const RoomPage = () => {
     return () => {
       peer.peer.removeEventListener("track", trackHandler);
     };
-  }, []);
+  }, [peerKey]);
+
+  // Trickle-ICE: forward every local candidate to the remote peer, and add
+  // every remote candidate we receive. Without this the peer connection can't
+  // traverse different NATs (phone cellular ↔ PC WiFi).
+  // We read remoteSocketIdRef (not state) inside the callback so we always
+  // capture the latest socket ID without waiting for a React re-render.
+  useEffect(() => {
+    if (!socket) return;
+    peer.onIceCandidate((candidate) => {
+      const targetId = remoteSocketIdRef.current;
+      if (!targetId) return;
+      socket.emit("ice:candidate", { to: targetId, candidate });
+    });
+    const handleRemoteIce = ({ candidate }) => {
+      peer.addRemoteIceCandidate(candidate);
+    };
+    socket.on("ice:candidate", handleRemoteIce);
+    return () => {
+      socket.off("ice:candidate", handleRemoteIce);
+    };
+  }, [socket, peerKey]);
 
   useEffect(() => {
     if (!socket) return;
@@ -210,6 +267,7 @@ const RoomPage = () => {
       toast(`${email} has left the room.`, { icon: "👋" });
       console.log(`${email} has left the room.`);
       if (remoteSocketId) {
+        remoteSocketIdRef.current = null;
         setRemoteSocketId(null);
         setRemoteEmail(null);
         setRemoteStream(null);
@@ -223,9 +281,28 @@ const RoomPage = () => {
         navigate(user ? '/dashboard' : '/');
       }, 3000);
     };
+
+    // Fired to everyone in the room when the roster changes — recovers if
+    // `user:joined` was missed (timing / strict mode) and keeps host socket id in sync.
+    const handleRoster = ({ clients }) => {
+      if (!clients?.length) return;
+      const selfId = socket.id;
+      const others = clients.filter((c) => c.socketId !== selfId);
+      if (others.length === 0) return;
+      const o = others[0];
+      if (!o?.socketId) return;
+      if (o.socketId === remoteSocketIdRef.current) return;
+      remoteSocketIdRef.current = o.socketId;
+      setRemoteSocketId(o.socketId);
+      if (o.email) setRemoteEmail(o.email);
+      if (isRoomOwnerRef.current) {
+        setShowDialog(true);
+      }
+    };
     
     socket.on("user:left", handleUserLeft);
     socket.on("room:join:error", handleRoomJoinError);
+    socket.on("new", handleRoster);
 
     return () => {
       socket.off("user:joined", handleUserJoined);
@@ -235,6 +312,7 @@ const RoomPage = () => {
       socket.off("peer:nego:final", handleNegoNeedFinal);
       socket.off("user:left", handleUserLeft);
       socket.off("room:join:error", handleRoomJoinError);
+      socket.off("new", handleRoster);
     };
   }, [
     socket,
@@ -258,6 +336,49 @@ const RoomPage = () => {
     }, 2000);
     return () => clearTimeout(timer);
   }, [incomingCall, sendStreams]);
+
+  const handleEndCall = useCallback(() => {
+    if (myStream) {
+      myStream.getTracks().forEach((t) => t.stop());
+      setMyStream(null);
+    }
+    if (remoteSocketId && socket) {
+      socket.emit('call:left', { to: remoteSocketId });
+    }
+    peer.reset();
+    remoteSocketIdRef.current = null;
+    setRemoteSocketId(null);
+    setPeerKey((k) => k + 1);
+    setRemoteStream(null);
+    setCallStatus('ended');
+    setShowEndCallModal(false);
+  }, [myStream, remoteSocketId, socket]);
+
+  const handleRejoin = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+      setMyStream(stream);
+      setIsVideoOff(false);
+      setIsMuted(false);
+      setCallStatus('in-call');
+      if (remoteSocketId && socket) {
+        socket.emit('user:rejoin');
+      }
+    } catch (err) {
+      toast.error('Could not access camera/microphone');
+    }
+  }, [remoteSocketId, socket]);
+
+  const handleReturnToLobby = useCallback(() => {
+    if (socket) socket.emit("leave:room", { roomId: collabRoomId, email });
+    navigate(user ? "/dashboard" : "/");
+  }, [socket, collabRoomId, email, navigate, user]);
+
+  const handleEndMeeting = useCallback(() => {
+    if (!socket) return;
+    socket.emit("room:end", { roomId: collabRoomId });
+    setShowEndCallModal(false);
+  }, [socket, collabRoomId]);
 
   const toggleVideo = () => {
     if (myStream) {
@@ -340,26 +461,80 @@ const RoomPage = () => {
     };
   }, [socket, remoteEmail, darkMode]);
 
-  const handleLeaveRoom = () => {
-    socket.emit("leave:room", { roomId, email });
-    if (myStream) {
-      myStream.getTracks().forEach((track) => track.stop());
-      setMyStream(null);
-    }
-    setRemoteSocketId(null);
-    setRemoteEmail(null);
-    setRemoteStream(null);
-    // Navigate to dashboard if authenticated, otherwise home
-    navigate(user ? '/dashboard' : '/');
-  };
-
   // Track unread messages when chat is closed
   useEffect(() => {
+    if (!socket) return;
     if (isChatOpen) { setUnreadCount(0); return; }
     const handler = () => setUnreadCount((n) => n + 1);
     socket.on('message:new', handler);
     return () => socket.off('message:new', handler);
   }, [socket, isChatOpen]);
+
+  // Google Meet-style call control socket events
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleRoomJoined = (data) => {
+      setIsRoomOwner(!!data.isOwner);
+      isRoomOwnerRef.current = !!data.isOwner;
+      if (data?.room) {
+        setSession({ id: data.room, joinCode: data.joinCode || null, isOwner: !!data.isOwner });
+      }
+      if (data?.joinCode) {
+        if (isLikelyCuid(roomId) || (roomId && roomId.toUpperCase() !== data.joinCode.toUpperCase())) {
+          navigate(`/room/${data.joinCode}`, { replace: true });
+        }
+      }
+      // Others are already in this room: joiner learns host socket id immediately
+      // (they never receive `user:joined` for people who joined before them).
+      if (data?.peers?.length) {
+        const p = data.peers[0];
+        if (p.id && p.id !== socket.id) {
+          remoteSocketIdRef.current = p.id;
+          setRemoteSocketId(p.id);
+          if (p.email) setRemoteEmail(p.email);
+          if (data.isOwner) {
+            setShowDialog(true);
+          } else {
+            toast("In the room. Wait for the host to admit the video call…", { icon: "⏳" });
+          }
+        }
+      }
+    };
+
+    const handleUserRejoined = ({ email: rejoinEmail, id }) => {
+      if (!id || id === socket.id) return;
+      remoteSocketIdRef.current = id;
+      setRemoteSocketId(id);
+      setRemoteEmail(rejoinEmail);
+      setShowDialog(true);
+      socket.emit('wait:for:call', { to: id, email });
+    };
+
+    const handleMeetingEnded = () => {
+      toast('The meeting was ended by the host.', { icon: '🚪' });
+      if (myStream) myStream.getTracks().forEach((t) => t.stop());
+      setMyStream(null);
+      setTimeout(() => navigate(user ? '/dashboard' : '/'), 1500);
+    };
+
+    const handleCallLeft = () => {
+      setRemoteStream(null);
+      toast(`${remoteEmail || 'Remote user'} left the call.`, { icon: '📵' });
+    };
+
+    socket.on('room:join', handleRoomJoined);
+    socket.on('user:rejoined', handleUserRejoined);
+    socket.on('meeting:ended', handleMeetingEnded);
+    socket.on('call:left', handleCallLeft);
+
+    return () => {
+      socket.off('room:join', handleRoomJoined);
+      socket.off('user:rejoined', handleUserRejoined);
+      socket.off('meeting:ended', handleMeetingEnded);
+      socket.off('call:left', handleCallLeft);
+    };
+  }, [socket, email, myStream, remoteEmail, navigate, user, roomId]);
 
   const showScreen = async () => {
     try {
@@ -388,7 +563,8 @@ const RoomPage = () => {
   };
 
   const copyRoomId = () => {
-    navigator.clipboard.writeText(roomId);
+    const toCopy = displayJoinCode || session?.joinCode || (!isLikelyCuid(roomId) ? normalizedRouteKey : roomId);
+    navigator.clipboard.writeText(toCopy);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
     toast("Session ID copied to clipboard!", {
@@ -427,7 +603,9 @@ const RoomPage = () => {
               <span className="font-bold text-blue-600 dark:text-blue-400 text-lg">SyncCodes</span>
               <div className="hidden md:flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-300">
                 <span>Session:</span>
-                <code className="bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">{roomId.substring(0, 8)}...</code>
+                <code className="bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                  {displayJoinCode || session?.joinCode || (isLikelyCuid(roomId) ? `${roomId.slice(0, 8)}…` : normalizedRouteKey || "—")}
+                </code>
                 <button
                   onClick={copyRoomId}
                   className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -458,7 +636,31 @@ const RoomPage = () => {
           {/* Layout changes based on isEditorOpen state */}
           <div className={`flex ${isEditorOpen ? "flex-row" : "flex-col"} w-full transition-all duration-300 ${isWhiteboardOpen ? "mr-[400px]" : ""}`}>
             {/* Video Feeds */}
-            <div className={`${isEditorOpen ? "w-[350px] mr-4" : "w-full"} transition-all duration-300`}>
+            <div className={`${isEditorOpen ? "w-[350px] mr-4" : "w-full"} transition-all duration-300 relative`}>
+              {/* Post-call overlay */}
+              {callStatus === 'ended' && (
+                <div className="absolute inset-0 bg-gray-900/90 flex flex-col items-center justify-center z-10 rounded-lg">
+                  <div className="w-20 h-20 rounded-full bg-red-500/20 flex items-center justify-center mb-4">
+                    <PhoneOff size={36} className="text-red-400" />
+                  </div>
+                  <h3 className="text-white text-xl font-semibold mb-2">You left the call</h3>
+                  <p className="text-gray-300 text-sm mb-6">You can rejoin or return to the lobby</p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleRejoin}
+                      className="px-5 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium"
+                    >
+                      Rejoin
+                    </button>
+                    <button
+                      onClick={handleReturnToLobby}
+                      className="px-5 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium"
+                    >
+                      Return to Lobby
+                    </button>
+                  </div>
+                </div>
+              )}
               {isEditorOpen ? (
                 // Video Column Layout when editor is open
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 h-[calc(100vh-9rem)]">
@@ -644,7 +846,9 @@ const RoomPage = () => {
                           Share your session ID with a colleague to collaborate
                         </p>
                         <div className="mt-4 flex items-center">
-                          <code className="bg-gray-200 dark:bg-gray-700 px-3 py-2 rounded text-sm">{roomId}</code>
+                          <code className="bg-gray-200 dark:bg-gray-700 px-3 py-2 rounded text-sm">
+                            {displayJoinCode || session?.joinCode || normalizedRouteKey}
+                          </code>
                           <button
                             onClick={copyRoomId}
                             className="ml-2 p-2 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded"
@@ -674,7 +878,8 @@ const RoomPage = () => {
                   </div>
                   <div className="h-[calc(100%-3rem)]">
                     <Editor
-                      roomId={roomId}
+                      key={collabRoomId}
+                      roomId={collabRoomId}
                       socket={socket}
                       darkMode={darkMode}
                     />
@@ -714,9 +919,10 @@ const RoomPage = () => {
             >
               <Monitor size={20} />
             </button>
-            <button 
+            <button
               className="p-3 rounded-full bg-red-500 hover:bg-red-600 text-white"
-              onClick={handleLeaveRoom}
+              onClick={() => setShowEndCallModal(true)}
+              title="Leave call"
             >
               <Phone size={20} className="rotate-[135deg]" />
             </button>
@@ -790,7 +996,7 @@ const RoomPage = () => {
         isOpen={isWhiteboardOpen}
         onClose={() => setIsWhiteboardOpen(false)}
         darkMode={darkMode}
-        roomId={roomId}
+        roomId={collabRoomId}
       />
 
       {/* Chat Panel */}
@@ -813,7 +1019,8 @@ const RoomPage = () => {
             </button>
           </div>
           <ChatPanel
-            roomId={roomId}
+            roomId={collabRoomId}
+            roomCuid={session?.id}
             currentUser={user || { name: email }}
             darkMode={darkMode}
           />
@@ -825,9 +1032,43 @@ const RoomPage = () => {
         isOpen={isResumeModalOpen} 
         onClose={() => setIsResumeModalOpen(false)} 
         darkMode={darkMode}
-        roomId={roomId}
+        roomId={collabRoomId}
       />
       
+      {/* End Call Modal */}
+      {showEndCallModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Leave the call?</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+              You can leave the call and stay in the session, or end it for everyone.
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={handleEndCall}
+                className="w-full px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium"
+              >
+                Leave Call
+              </button>
+              {isRoomOwner && (
+                <button
+                  onClick={handleEndMeeting}
+                  className="w-full px-4 py-2.5 bg-red-800 hover:bg-red-900 text-white rounded-lg font-medium"
+                >
+                  End Meeting for Everyone
+                </button>
+              )}
+              <button
+                onClick={() => setShowEndCallModal(false)}
+                className="w-full px-4 py-2.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg font-medium"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Admit Dialog */}
       {showDialog && remoteEmail && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">

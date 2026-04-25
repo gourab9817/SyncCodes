@@ -125,9 +125,9 @@ const LobbyPage = () => {
                   value={joinCode}
                   onChange={(e) => { setJoinCode(e.target.value); setJoinError(""); }}
                   className="sc-input"
-                  placeholder="e.g. ABC123"
+                  placeholder="e.g. 8A3B9K2C7M1N4P5 (16 characters)"
                   style={{ flex: 1, textTransform: "uppercase" }}
-                  maxLength={10}
+                  maxLength={32}
                 />
                 <button
                   type="button"

@@ -1,41 +1,129 @@
+const defaultIce = () => {
+  const base = [
+    {
+      urls: [
+        "stun:stun.l.google.com:19302",
+        "stun:stun1.l.google.com:19302",
+        "stun:global.stun.twilio.com:3478",
+      ],
+    },
+  ];
+  const raw =
+    (typeof import.meta !== "undefined" && import.meta.env?.VITE_EXTRA_ICE_SERVERS) ||
+    (typeof process !== "undefined" && process.env?.REACT_APP_EXTRA_ICE_SERVERS);
+  if (raw) {
+    try {
+      const extra = JSON.parse(raw);
+      if (Array.isArray(extra) && extra.length) return [...base, ...extra];
+    } catch {
+      /* ignore invalid env */
+    }
+  }
+  return base;
+};
+
+const ICE_SERVERS = defaultIce();
+
 class PeerService {
-    constructor() {
-      if (!this.peer) {
-        this.peer = new RTCPeerConnection({
-          iceServers: [
-            {
-              urls: [
-                "stun:stun.l.google.com:19302",
-                "stun:global.stun.twilio.com:3478",
-              ],
-            },
-          ],
-        });
-      }
+  constructor() {
+    this._create();
+  }
+
+  _create() {
+    this.peer = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    this._addedTrackIds = new Set();
+    this._pendingRemoteCandidates = [];
+    this._remoteDescriptionSet = false;
+  }
+
+  // Subscribe to local ICE candidates. The handler receives the raw candidate
+  // object (safe to JSON-serialize) and should forward it over the signaling
+  // channel to the remote peer.
+  onIceCandidate(handler) {
+    this.peer.onicecandidate = (event) => {
+      if (event.candidate) handler(event.candidate.toJSON());
+    };
+  }
+
+  // Subscribe to remote media tracks.
+  onTrack(handler) {
+    this.peer.ontrack = (event) => {
+      const [stream] = event.streams;
+      if (stream) handler(stream);
+    };
+  }
+
+  // Add all tracks of a MediaStream once. Repeated calls are safe and will
+  // skip tracks that were already added — this avoids the "senders are already
+  // associated with a track" error during renegotiation.
+  addLocalStream(stream) {
+    if (!stream) return;
+    for (const track of stream.getTracks()) {
+      if (this._addedTrackIds.has(track.id)) continue;
+      this.peer.addTrack(track, stream);
+      this._addedTrackIds.add(track.id);
     }
-  
-    async getAnswer(offer) {
-      if (this.peer) {
-        await this.peer.setRemoteDescription(offer);
-        const ans = await this.peer.createAnswer();
-        await this.peer.setLocalDescription(new RTCSessionDescription(ans));
-        return ans;
-      }
+  }
+
+  async createOffer() {
+    const offer = await this.peer.createOffer();
+    await this.peer.setLocalDescription(offer);
+    return this.peer.localDescription;
+  }
+
+  async acceptOffer(offer) {
+    await this.peer.setRemoteDescription(new RTCSessionDescription(offer));
+    this._remoteDescriptionSet = true;
+    await this._flushPendingCandidates();
+    const answer = await this.peer.createAnswer();
+    await this.peer.setLocalDescription(answer);
+    return this.peer.localDescription;
+  }
+
+  async acceptAnswer(answer) {
+    await this.peer.setRemoteDescription(new RTCSessionDescription(answer));
+    this._remoteDescriptionSet = true;
+    await this._flushPendingCandidates();
+  }
+
+  async addRemoteIceCandidate(candidate) {
+    if (!candidate) return;
+    // Until a remote description is set, addIceCandidate throws. Queue and
+    // flush when the answer/offer arrives.
+    if (!this._remoteDescriptionSet) {
+      this._pendingRemoteCandidates.push(candidate);
+      return;
     }
-  
-    async setLocalDescription(ans) {
-      if (this.peer) {
-        await this.peer.setRemoteDescription(new RTCSessionDescription(ans));
-      }
+    try {
+      await this.peer.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (err) {
+      console.warn("addIceCandidate failed", err);
     }
-  
-    async getOffer() {
-      if (this.peer) {
-        const offer = await this.peer.createOffer();
-        await this.peer.setLocalDescription(new RTCSessionDescription(offer));
-        return offer;
+  }
+
+  async _flushPendingCandidates() {
+    const queue = this._pendingRemoteCandidates;
+    this._pendingRemoteCandidates = [];
+    for (const c of queue) {
+      try {
+        await this.peer.addIceCandidate(new RTCIceCandidate(c));
+      } catch (err) {
+        console.warn("flushed addIceCandidate failed", err);
       }
     }
   }
-  
-  export default new PeerService();
+
+  reset() {
+    try {
+      this.peer.onicecandidate = null;
+      this.peer.ontrack = null;
+      this.peer.close();
+    } catch (_) {
+      /* noop */
+    }
+    this._create();
+  }
+}
+
+const peer = new PeerService();
+export default peer;

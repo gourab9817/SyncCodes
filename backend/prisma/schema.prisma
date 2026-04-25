@@ -15,6 +15,7 @@ model User {
   name          String
   password      String?
   avatar        String?
+  publicKey     String?
   emailVerified Boolean   @default(false)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -53,13 +54,16 @@ model SessionMember {
 }
 
 model Message {
-  id        String   @id @default(cuid())
-  content   String
-  userId    String
-  roomId    String
-  createdAt DateTime @default(now())
+  id            String   @id @default(cuid())
+  content       String
+  iv            String?
+  recipientKeys Json?
+  encrypted     Boolean  @default(false)
+  userId        String
+  roomId        String
+  createdAt     DateTime @default(now())
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room          Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
 }
 

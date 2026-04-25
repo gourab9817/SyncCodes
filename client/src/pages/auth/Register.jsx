@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form';
 import { useAuth } from '../../context/AuthContext';
 
 const Register = () => {
-  const { register: registerUser, loginWithGoogle } = useAuth();
+  const { register: registerUser } = useAuth();
   const [serverError, setServerError] = useState('');
   const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm();
 

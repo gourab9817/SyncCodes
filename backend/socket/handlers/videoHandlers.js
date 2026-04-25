@@ -23,10 +23,10 @@ module.exports = (io, socket) => {
     io.to(to).emit('remote:audio:toggle', { isAudioOff, email });
   });
 
-  // WebRTC signaling: sender must be authenticated AND in the same room as target.
+  // WebRTC: membership in a shared room is enforced by shareARoom; do not require
+  // JWT (guest / token-without-email still needs to be able to signal in-room).
   socket.on('user:call', ({ to, offer, email }) => {
     if (!to || !offer) return;
-    if (!socket.userId && !socket.userEmail) return;
     if (!shareARoom(io, socket, to)) return;
     io.to(to).emit('incomming:call', { from: socket.id, offer, fromEmail: email });
   });
@@ -53,5 +53,18 @@ module.exports = (io, socket) => {
     if (!to) return;
     if (!shareARoom(io, socket, to)) return;
     io.to(to).emit('wait:for:call', { from: socket.id, email });
+  });
+
+  socket.on('call:left', ({ to }) => {
+    if (!to || !shareARoom(io, socket, to)) return;
+    io.to(to).emit('call:left', { from: socket.id });
+  });
+
+  // Trickle-ICE relay. Without forwarding per-peer candidates the WebRTC
+  // connection can't traverse different NATs (e.g. phone cellular ↔ PC WiFi).
+  socket.on('ice:candidate', ({ to, candidate }) => {
+    if (!to || !candidate) return;
+    if (!shareARoom(io, socket, to)) return;
+    io.to(to).emit('ice:candidate', { from: socket.id, candidate });
   });
 };

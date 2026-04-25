@@ -5,7 +5,7 @@ const getMe = async (req, res, next) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
-      select: { id: true, name: true, email: true, avatar: true, emailVerified: true, createdAt: true },
+      select: { id: true, name: true, email: true, avatar: true, publicKey: true, emailVerified: true, createdAt: true },
     });
     res.json(user);
   } catch (err) {
@@ -55,4 +55,20 @@ const getStats = async (req, res, next) => {
   }
 };
 
-module.exports = { getMe, updateMe, getStats };
+const registerPublicKey = async (req, res, next) => {
+  try {
+    const { publicKey } = z
+      .object({ publicKey: z.string().min(1).max(1000) })
+      .parse(req.body);
+
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data: { publicKey },
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = { getMe, updateMe, getStats, registerPublicKey };

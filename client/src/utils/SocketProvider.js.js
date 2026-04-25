@@ -1,11 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { io } from "socket.io-client";
 import { useAuth } from "../context/AuthContext";
-
-const ENDPOINT =
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) ||
-  process.env.REACT_APP_API_URL ||
-  "http://localhost:8000";
+import { getBackendBaseUrl } from "../config/backendUrl";
 
 const SocketContext = createContext(null);
 
@@ -20,13 +16,15 @@ export const SocketProvider = ({ children }) => {
 
   useEffect(() => {
     const token = localStorage.getItem("neon_access_token");
+    const endpoint = getBackendBaseUrl();
 
-    const newSocket = io(ENDPOINT, {
-      transports: ["websocket"],
+    const newSocket = io(endpoint, {
+      path: "/socket.io",
+      transports: ["websocket", "polling"],
       withCredentials: true,
       auth: { token: token || null },
       reconnection: true,
-      reconnectionAttempts: 10,
+      reconnectionAttempts: 20,
       reconnectionDelay: 1000,
     });
 

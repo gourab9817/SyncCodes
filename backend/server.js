@@ -15,6 +15,7 @@ const userRoutes = require('./routes/users');
 const roomRoutes = require('./routes/rooms');
 const questionRoutes = require('./routes/questions');
 const executeRoutes = require('./routes/execute');
+const { isOriginAllowed } = require('./config/allowedOrigins');
 
 const app = express();
 const server = http.createServer(app);
@@ -34,8 +35,18 @@ app.get('/health', (req, res) => {
 
 // Security
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors({ origin: env.clientUrl, credentials: true }));
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false }));
+app.use(
+  cors({
+    origin: (origin, cb) => cb(null, isOriginAllowed(origin)),
+    credentials: true,
+  })
+);
+// Do not rate-limit Engine.IO long-poll; it can look like a burst of API calls.
+const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false });
+app.use((req, res, next) => {
+  if (req.path && String(req.path).startsWith('/socket.io')) return next();
+  return apiLimiter(req, res, next);
+});
 
 // Body parsing
 app.use(express.json());
@@ -60,7 +71,7 @@ app.use(errorHandler);
 
 const prisma = require('./config/db');
 
-initSocket(server, env.clientUrl)
+initSocket(server)
   .then(() => {
     server.listen(env.port, () => {
       logger.info(`Server running on port ${env.port} (${env.nodeEnv})`);

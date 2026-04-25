@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { X, Upload, FileText, Loader, CheckCircle, AlertCircle } from 'lucide-react';
+import { X, FileText, Loader, CheckCircle, AlertCircle } from 'lucide-react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
+import { getBackendBaseUrl } from '../config/backendUrl';
 
 const ResumeInterviewModal = ({ isOpen, onClose, darkMode, roomId }) => {
   const [file, setFile] = useState(null);
@@ -32,8 +33,7 @@ const ResumeInterviewModal = ({ isOpen, onClose, darkMode, roomId }) => {
   
   const difficultyLabels = ['Easy', 'Moderate', 'Intermediate', 'Advanced', 'Expert'];;
 
-  // Get backend URL from environment or default
-  const BACKEND_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+  const BACKEND_URL = getBackendBaseUrl();
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];

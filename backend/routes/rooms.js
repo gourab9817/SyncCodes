@@ -8,6 +8,7 @@ const {
   deleteRoom,
   getRoomMessages,
   joinRoom,
+  getRoomMemberKeys,
 } = require('../controllers/roomController');
 
 router.use(authenticate);
@@ -19,5 +20,6 @@ router.post('/join/:code', joinRoom);
 router.get('/:id', getRoom);
 router.delete('/:id', deleteRoom);
 router.get('/:id/messages', getRoomMessages);
+router.get('/:id/member-keys', getRoomMemberKeys);
 
 module.exports = router;

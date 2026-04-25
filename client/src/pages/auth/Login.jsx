@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form';
 import { useAuth } from '../../context/AuthContext';
 
 const Login = () => {
-  const { login, loginWithGoogle } = useAuth();
+  const { login } = useAuth();
   const [searchParams] = useSearchParams();
   const [serverError, setServerError] = useState(searchParams.get('error') || '');
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm();
