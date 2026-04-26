@@ -15,12 +15,12 @@ module.exports = (io, socket) => {
   // Media-toggle events: sender must be in the same room as the target.
   socket.on('user:video:toggle', ({ to, isVideoOff, email }) => {
     if (!to || !shareARoom(io, socket, to)) return;
-    io.to(to).emit('remote:video:toggle', { isVideoOff, email });
+    io.to(to).emit('remote:video:toggle', { isVideoOff, email, from: socket.id });
   });
 
   socket.on('user:audio:toggle', ({ to, isAudioOff, email }) => {
     if (!to || !shareARoom(io, socket, to)) return;
-    io.to(to).emit('remote:audio:toggle', { isAudioOff, email });
+    io.to(to).emit('remote:audio:toggle', { isAudioOff, email, from: socket.id });
   });
 
   // WebRTC: membership in a shared room is enforced by shareARoom; do not require

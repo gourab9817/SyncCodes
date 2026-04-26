@@ -5,18 +5,18 @@ import { listRooms, createRoom, getStats } from '../services/roomService';
 import Nav from '../components/layout/Nav';
 
 const StatCard = ({ label, value, icon, color }) => (
-  <div className="sc-card" style={{ padding: 24, display: 'flex', alignItems: 'center', gap: 16 }}>
+  <div className="sc-card" style={{ padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
     <div style={{
-      width: 48, height: 48, borderRadius: 12,
+      width: 44, height: 44, borderRadius: 11,
       background: `${color}20`,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: 22,
+      fontSize: 20, flexShrink: 0,
     }}>
       {icon}
     </div>
-    <div>
-      <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--text)', lineHeight: 1.2 }}>{value ?? '—'}</div>
-      <div style={{ fontSize: 13, color: 'var(--text3)' }}>{label}</div>
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', lineHeight: 1.2, fontVariantNumeric: 'tabular-nums' }}>{value ?? '—'}</div>
+      <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 1 }}>{label}</div>
     </div>
   </div>
 );
@@ -88,17 +88,17 @@ const Dashboard = () => {
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
+    <div style={{ minHeight: '100dvh', background: 'var(--bg)' }}>
       <Nav />
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '32px 24px' }} className="animate-fade-in">
+      <div className="page-content animate-fade-in">
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 28, flexWrap: 'wrap' }}>
           <div>
-            <h1 style={{ fontSize: 28, marginBottom: 4 }}>
+            <h1 style={{ fontSize: 'clamp(22px, 4vw, 28px)', marginBottom: 4 }}>
               {greeting}, {user?.name?.split(' ')[0]} 👋
             </h1>
-            <p style={{ color: 'var(--text3)', fontSize: 15 }}>
+            <p style={{ color: 'var(--text3)', fontSize: 14 }}>
               Ready to code together?
             </p>
           </div>
@@ -106,14 +106,14 @@ const Dashboard = () => {
             className="sc-btn sc-btn-primary"
             onClick={handleCreate}
             disabled={creating}
-            style={{ padding: '10px 24px' }}
+            style={{ padding: '10px 22px', flexShrink: 0 }}
           >
             {creating ? 'Creating…' : '+ New Session'}
           </button>
         </div>
 
         {/* Stats */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 32 }}>
+        <div className="stat-grid" style={{ marginBottom: 28 }}>
           <StatCard label="Total Sessions" value={stats?.totalSessions} icon="🖥️" color="#FF6B5B" />
           <StatCard label="Minutes Coded" value={stats?.totalMinutes} icon="⏱️" color="#1DB8A3" />
           <StatCard label="Rooms Owned" value={stats?.ownedRooms} icon="🗂️" color="#A78BFA" />
@@ -121,7 +121,7 @@ const Dashboard = () => {
         </div>
 
         {/* Quick actions */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 36 }}>
+        <div className="quick-actions-grid" style={{ marginBottom: 32 }}>
           {[
             { icon: '➕', label: 'New Session', action: handleCreate, color: 'var(--coral)' },
             { icon: '🔗', label: 'Join by Code', action: () => navigate('/join'), color: 'var(--teal)' },
@@ -158,7 +158,7 @@ const Dashboard = () => {
         {/* Recent sessions */}
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <h2 style={{ fontSize: 18 }}>Your Sessions</h2>
+            <h2 style={{ fontSize: 17 }}>Your Sessions</h2>
             <button
               onClick={() => navigate('/sessions')}
               style={{ background: 'none', border: 'none', color: 'var(--coral)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}

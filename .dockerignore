@@ -5,6 +5,9 @@
 **/.cache
 **/.DS_Store
 **/*.log
+# Never bake secrets into image
+**/.env
+**/.env.*
 terminals
 agent-transcripts
 mcps

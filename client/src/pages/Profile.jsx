@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import Nav from '../components/layout/Nav';
+import { supabase } from '../utils/supabaseClient';
 
 const Profile = () => {
   const { user, logout } = useAuth();
@@ -11,6 +12,8 @@ const Profile = () => {
   const [saved, setSaved] = useState(false);
   const [serverError, setServerError] = useState('');
   const [pwSent, setPwSent] = useState(false);
+  const [pwError, setPwError] = useState('');
+  const [pwLoading, setPwLoading] = useState(false);
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm({
     defaultValues: { name: user?.name || '', avatar: user?.avatar || '' },
@@ -30,9 +33,21 @@ const Profile = () => {
 
   const handlePasswordReset = async () => {
     if (!user?.email) return;
-    setServerError('Password reset email flow is not wired on this frontend yet.');
-    setPwSent(true);
-    setTimeout(() => setPwSent(false), 5000);
+    setPwError('');
+    setPwSent(false);
+    setPwLoading(true);
+    try {
+      if (!supabase) throw new Error('Supabase is not configured');
+      const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+        redirectTo: `${window.location.origin}/auth/reset-password`,
+      });
+      if (error) throw new Error(error.message);
+      setPwSent(true);
+    } catch (err) {
+      setPwError(err.message || 'Failed to send reset email. Please try again.');
+    } finally {
+      setPwLoading(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -111,15 +126,25 @@ const Profile = () => {
         <div className="sc-card" style={{ padding: 28, marginBottom: 20 }}>
           <h2 style={{ fontSize: 16, marginBottom: 8 }}>Change Password</h2>
           <p style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 16 }}>
-            We'll send a password reset link to your email address.
+            We'll send a password reset link to <strong style={{ color: 'var(--text2)' }}>{user?.email}</strong>.
           </p>
-          {pwSent && (
-            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px', color: '#16a34a', fontSize: 13, marginBottom: 12 }}>
-              ✓ Reset link sent — check your inbox!
+          {pwError && (
+            <div role="alert" style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', color: '#dc2626', fontSize: 13, marginBottom: 12 }}>
+              {pwError}
             </div>
           )}
-          <button className="sc-btn sc-btn-secondary" onClick={handlePasswordReset} style={{ padding: '8px 24px' }}>
-            Send reset link
+          {pwSent && (
+            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px', color: '#16a34a', fontSize: 13, marginBottom: 12 }}>
+              ✓ Reset link sent — check your inbox (and spam folder).
+            </div>
+          )}
+          <button
+            className="sc-btn sc-btn-secondary"
+            onClick={handlePasswordReset}
+            disabled={pwLoading || pwSent}
+            style={{ padding: '8px 24px' }}
+          >
+            {pwLoading ? 'Sending…' : pwSent ? 'Link sent!' : 'Send reset link'}
           </button>
         </div>
 

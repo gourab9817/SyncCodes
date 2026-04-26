@@ -10,6 +10,9 @@ const whiteboardHandlers = require('./handlers/whiteboardHandlers');
 const chatHandlers = require('./handlers/chatHandlers');
 const { roomJoinLimiter, yjsUpdateLimiter, assertSocketInRoom } = require('./socketGuards');
 const { isOriginAllowed } = require('../config/allowedOrigins');
+const { syncUser, syncSupabaseUser } = require('../services/userSyncService');
+const { verifySupabaseAccessToken } = require('../lib/supabaseJwt');
+const { setIo } = require('./ioInstance');
 
 const jwksClient = process.env.NEON_JWKS ? jwks({
   jwksUri: process.env.NEON_JWKS,
@@ -48,6 +51,37 @@ function getOtherPeersInRoom(io, roomId, socket) {
     });
 }
 
+function waitingRoomKey(canonicalRoomId) {
+  return `waiting:${canonicalRoomId}`;
+}
+
+function collectRoomAliasKeys(room) {
+  const aliasKeys = [room.id];
+  if (room.joinCode) {
+    aliasKeys.push(
+      room.joinCode,
+      room.joinCode.toUpperCase(),
+      room.joinCode.toLowerCase()
+    );
+  }
+  const seen = new Set();
+  return aliasKeys.filter((k) => {
+    if (!k || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+function leaveAllWaitingRooms(socket) {
+  for (const key of [...(socket.data.joinedRooms || [])]) {
+    if (!String(key).startsWith('waiting:')) continue;
+    socket.leave(key);
+    socket.data.joinedRooms.delete(key);
+    if (socket.data.roomIdByKey) delete socket.data.roomIdByKey[key];
+  }
+  socket.data.pendingAdmissionRoomId = null;
+}
+
 /**
  * @param {import('http').Server} server
  * @returns {Promise<import('socket.io').Server>}
@@ -60,6 +94,7 @@ async function initSocket(server) {
       credentials: true,
     },
   });
+  setIo(io);
 
   if (env.redisUrl) {
     try {
@@ -85,29 +120,58 @@ async function initSocket(server) {
       return next();
     }
 
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
-      socket.userId = decoded.sub;
-      socket.userEmail = decoded.email;
-      return next();
-    } catch (localErr) {
-      if (jwksClient) {
-        return jwt.verify(token, getKey, { algorithms: ['RS256'] }, (err, decoded) => {
-          if (!err && decoded) {
-            socket.userId = decoded.sub;
-            socket.userEmail = decoded.email;
-          }
-          if (env.socketAuthRequired && !socket.userId) {
-            return next(new Error('auth_invalid'));
-          }
-          return next();
-        });
+    (async () => {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
+        socket.userId = decoded.sub;
+        socket.userEmail = decoded.email;
+        return next();
+      } catch {
+        /* not app JWT */
       }
-    }
-    if (env.socketAuthRequired) {
-      return next(new Error('auth_invalid'));
-    }
-    return next();
+
+      if (process.env.SUPABASE_URL) {
+        try {
+          const dec = await verifySupabaseAccessToken(token);
+          const user = await syncSupabaseUser(dec);
+          socket.userId = user.id;
+          socket.userEmail = user.email;
+          return next();
+        } catch (supErr) {
+          logger.warn(`Socket Supabase JWT: ${supErr.message}`);
+        }
+      }
+
+      if (jwksClient) {
+        jwt.verify(token, getKey, { algorithms: ['RS256'] }, (err, decoded) => {
+          if (err || !decoded) {
+            if (env.socketAuthRequired) {
+              return next(new Error('auth_invalid'));
+            }
+            return next();
+          }
+          syncUser(decoded)
+            .then((user) => {
+              socket.userId = user.id;
+              socket.userEmail = user.email;
+              next();
+            })
+            .catch((syncErr) => {
+              logger.error(`Socket RS256 syncUser: ${syncErr.message}`);
+              if (env.socketAuthRequired) {
+                return next(new Error('auth_invalid'));
+              }
+              next();
+            });
+        });
+        return;
+      }
+
+      if (env.socketAuthRequired) {
+        return next(new Error('auth_invalid'));
+      }
+      return next();
+    })();
   });
 
   io.on('connection', (socket) => {
@@ -115,7 +179,11 @@ async function initSocket(server) {
     // Maps any accepted key (internal id OR joinCode) -> internal room.id so
     // handlers can resolve whichever identifier the client sends.
     socket.data.roomIdByKey = Object.create(null);
+    socket.data.pendingAdmissionRoomId = null;
     logger.info(`Socket connected: ${socket.id} user=${socket.userId || 'anon'}`);
+    if (socket.userId) {
+      socket.join(`user:${socket.userId}`);
+    }
 
     socket.on('room:join', async (data) => {
       const { email: clientEmail, room: roomKey } = data || {};
@@ -166,44 +234,86 @@ async function initSocket(server) {
           return;
         }
 
+        emailToSocketIdMap.set(email, socket.id);
+        socketidToEmailMap.set(socket.id, email);
+
+        const isOwner = room.ownerId === socket.userId;
+
         if (socket.userId) {
           try {
             await prisma.sessionMember.upsert({
               where: { userId_roomId: { userId: socket.userId, roomId: room.id } },
-              create: { userId: socket.userId, roomId: room.id },
-              update: { leftAt: null },
+              create: {
+                userId: socket.userId,
+                roomId: room.id,
+                ...(isOwner ? { admittedAt: new Date() } : {}),
+              },
+              update: {
+                leftAt: null,
+                ...(isOwner ? { admittedAt: new Date() } : { admittedAt: null }),
+              },
             });
           } catch (e) {
             logger.warn(`sessionMember upsert skipped: ${e.message}`);
           }
         }
+        const wKey = waitingRoomKey(room.id);
 
-        emailToSocketIdMap.set(email, socket.id);
-        socketidToEmailMap.set(socket.id, email);
+        // Non-owners wait in a Socket.IO holding room until the host admits them.
+        // They never join the live session room until admitted (no roster, chat, or WebRTC).
+        if (!isOwner) {
+          leaveAllWaitingRooms(socket);
+          const wasWaitingHere = socket.rooms.has(wKey);
+          if (!wasWaitingHere) {
+            socket.join(wKey);
+            socket.data.joinedRooms.add(wKey);
+            socket.data.roomIdByKey[wKey] = room.id;
+            socket.data.pendingAdmissionRoomId = room.id;
+
+            let joinerPublicKey = null;
+            if (socket.userId) {
+              try {
+                const u = await prisma.user.findUnique({
+                  where: { id: socket.userId },
+                  select: { publicKey: true },
+                });
+                joinerPublicKey = u?.publicKey ?? null;
+              } catch (e) {
+                logger.warn(`publicKey lookup skipped: ${e.message}`);
+              }
+            }
+            socket.to(room.id).emit('user:knock', {
+              email,
+              id: socket.id,
+              userId: socket.userId,
+              publicKey: joinerPublicKey,
+            });
+          }
+
+          io.to(socket.id).emit('room:join', {
+            email,
+            room: room.id,
+            joinCode: room.joinCode,
+            ownerId: room.ownerId,
+            isOwner: false,
+            peers: [],
+            admitted: false,
+          });
+          logger.info(`User ${email} waiting for admission to ${room.id} (${room.joinCode})`);
+          return;
+        }
+
+        leaveAllWaitingRooms(socket);
 
         const wasInRoom = socket.rooms.has(room.id);
-        // Join every stable alias (internal id + join code + case variants) so all
-        // clients share the same Socket.IO room regardless of URL casing.
-        const aliasKeys = [room.id];
-        if (room.joinCode) {
-          aliasKeys.push(
-            room.joinCode,
-            room.joinCode.toUpperCase(),
-            room.joinCode.toLowerCase()
-          );
-        }
-        const seen = new Set();
+        const aliasKeys = collectRoomAliasKeys(room);
         for (const k of aliasKeys) {
-          if (!k || seen.has(k)) continue;
-          seen.add(k);
           socket.join(k);
           socket.data.joinedRooms.add(k);
           socket.data.roomIdByKey[k] = room.id;
         }
 
         if (!wasInRoom) {
-          // socket.to() excludes the sender — the joiner must not receive their
-          // own user:joined event or they will see themselves in the admit dialog.
           let joinerPublicKey = null;
           if (socket.userId) {
             try {
@@ -225,8 +335,9 @@ async function initSocket(server) {
           room: room.id,
           joinCode: room.joinCode,
           ownerId: room.ownerId,
-          isOwner: room.ownerId === socket.userId,
+          isOwner: true,
           peers: otherPeers,
+          admitted: true,
         });
 
         const clients = getAllConnectedClients(io, room.id);
@@ -239,8 +350,131 @@ async function initSocket(server) {
       }
     });
 
+    socket.on('room:admit', async ({ roomId: roomKey, targetSocketId }) => {
+      try {
+        if (!socket.userId || !roomKey || !targetSocketId) return;
+        const room = await prisma.room.findFirst({
+          where: {
+            isActive: true,
+            OR: [{ id: String(roomKey).trim() }, { joinCode: String(roomKey).trim().toUpperCase() }],
+          },
+          select: { id: true, ownerId: true, joinCode: true },
+        });
+        if (!room || room.ownerId !== socket.userId) {
+          socket.emit('room:admit:error', { error: 'Only the host can admit participants.' });
+          return;
+        }
+        const target = io.sockets.sockets.get(targetSocketId);
+        if (!target || target.data.pendingAdmissionRoomId !== room.id) {
+          socket.emit('room:admit:error', { error: 'That participant is not in the waiting room.' });
+          return;
+        }
+
+        const wKey = waitingRoomKey(room.id);
+        target.leave(wKey);
+        target.data.joinedRooms.delete(wKey);
+        if (target.data.roomIdByKey) delete target.data.roomIdByKey[wKey];
+        target.data.pendingAdmissionRoomId = null;
+
+        const aliasKeys = collectRoomAliasKeys(room);
+        for (const k of aliasKeys) {
+          target.join(k);
+          target.data.joinedRooms.add(k);
+          target.data.roomIdByKey[k] = room.id;
+        }
+
+        if (target.userId) {
+          try {
+            await prisma.sessionMember.updateMany({
+              where: { userId: target.userId, roomId: room.id },
+              data: { admittedAt: new Date() },
+            });
+          } catch (e) {
+            logger.warn(`sessionMember admittedAt update skipped: ${e.message}`);
+          }
+        }
+
+        const targetEmail = socketidToEmailMap.get(target.id) || 'Guest';
+        let joinerPublicKey = null;
+        if (target.userId) {
+          try {
+            const u = await prisma.user.findUnique({
+              where: { id: target.userId },
+              select: { publicKey: true },
+            });
+            joinerPublicKey = u?.publicKey ?? null;
+          } catch (e) {
+            logger.warn(`publicKey lookup skipped: ${e.message}`);
+          }
+        }
+
+        target.to(room.id).emit('user:joined', {
+          email: targetEmail,
+          id: target.id,
+          userId: target.userId,
+          publicKey: joinerPublicKey,
+        });
+
+        const otherPeers = getOtherPeersInRoom(io, room.id, target);
+        target.emit('room:join', {
+          email: targetEmail,
+          room: room.id,
+          joinCode: room.joinCode,
+          ownerId: room.ownerId,
+          isOwner: false,
+          peers: otherPeers,
+          admitted: true,
+        });
+
+        const clients = getAllConnectedClients(io, room.id);
+        io.to(room.id).emit('new', { clients });
+        logger.info(`Admitted ${targetEmail} into room ${room.id}`);
+      } catch (e) {
+        logger.error(`room:admit error: ${e.message}`);
+        socket.emit('room:admit:error', { error: 'Failed to admit participant.' });
+      }
+    });
+
+    socket.on('room:decline', async ({ roomId: roomKey, targetSocketId }) => {
+      try {
+        if (!socket.userId || !roomKey || !targetSocketId) return;
+        const room = await prisma.room.findFirst({
+          where: {
+            isActive: true,
+            OR: [{ id: String(roomKey).trim() }, { joinCode: String(roomKey).trim().toUpperCase() }],
+          },
+          select: { id: true, ownerId: true },
+        });
+        if (!room || room.ownerId !== socket.userId) return;
+        const target = io.sockets.sockets.get(targetSocketId);
+        if (!target || target.data.pendingAdmissionRoomId !== room.id) return;
+
+        const wKey = waitingRoomKey(room.id);
+        target.leave(wKey);
+        target.data.joinedRooms.delete(wKey);
+        if (target.data.roomIdByKey) delete target.data.roomIdByKey[wKey];
+        target.data.pendingAdmissionRoomId = null;
+
+        target.emit('room:denied', { reason: 'The host did not admit you to this session.' });
+        logger.info(`Admission declined for socket ${targetSocketId} (room ${room.id})`);
+      } catch (e) {
+        logger.error(`room:decline error: ${e.message}`);
+      }
+    });
+
     socket.on('leave:room', async ({ roomId, email }) => {
       if (!roomId) return;
+
+      if (socket.data.pendingAdmissionRoomId) {
+        const cid = socket.data.pendingAdmissionRoomId;
+        const wKey = waitingRoomKey(cid);
+        socket.leave(wKey);
+        socket.data.joinedRooms?.delete(wKey);
+        if (socket.data.roomIdByKey) delete socket.data.roomIdByKey[wKey];
+        socket.data.pendingAdmissionRoomId = null;
+        return;
+      }
+
       const canonicalId = socket.data.roomIdByKey?.[roomId] || roomId;
       // Leave both aliases so the socket is fully detached.
       socket.leave(canonicalId);
@@ -263,13 +497,14 @@ async function initSocket(server) {
         }
       }
 
-      socket.to(canonicalId).emit('user:left', { email });
+      socket.to(canonicalId).emit('user:left', { id: socket.id, email });
     });
 
     socket.on('user:rejoin', () => {
       const emailVal = socketidToEmailMap.get(socket.id) || socket.userEmail || 'Someone';
       const seen = new Set();
       socket.data.joinedRooms?.forEach((key) => {
+        if (String(key).startsWith('waiting:')) return;
         const canonical = socket.data.roomIdByKey?.[key] || key;
         if (seen.has(canonical)) return;
         seen.add(canonical);
@@ -299,6 +534,7 @@ async function initSocket(server) {
         }
         await prisma.room.update({ where: { id: room.id }, data: { isActive: false } });
         io.to(room.id).emit('meeting:ended', { roomId: room.id });
+        io.to(waitingRoomKey(room.id)).emit('meeting:ended', { roomId: room.id });
         logger.info(`Meeting ended for room ${room.id} by owner ${socket.userId}`);
       } catch (e) {
         logger.error(`room:end error: ${e.message}`);
@@ -312,6 +548,7 @@ async function initSocket(server) {
       // collapse them to canonical internal ids before using for DB or emits.
       const canonicalRooms = new Set();
       socket.data.joinedRooms?.forEach((key) => {
+        if (String(key).startsWith('waiting:')) return;
         const canonical = socket.data.roomIdByKey?.[key] || key;
         canonicalRooms.add(canonical);
       });

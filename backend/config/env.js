@@ -1,6 +1,8 @@
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 
-const required = ['DATABASE_URL', 'NEON_JWKS', 'JWT_SECRET'];
+const required = ['DATABASE_URL', 'JWT_SECRET'];
 
 for (const key of required) {
   if (!process.env[key]) {
@@ -27,10 +29,27 @@ if (isProd && executionBackend === 'local') {
   );
 }
 
+const backendRoot = path.join(__dirname, '..');
+const monorepoClientIndex = path.join(backendRoot, '..', 'client', 'build', 'index.html');
+
+/** Host React build from this server when the build exists (or force with SERVE_CLIENT_STATIC). */
+const serveClientStatic =
+  process.env.SERVE_CLIENT_STATIC !== undefined && String(process.env.SERVE_CLIENT_STATIC).trim() !== ''
+    ? bool(process.env.SERVE_CLIENT_STATIC)
+    : fs.existsSync(monorepoClientIndex);
+
+/** Extra browser origins for CORS/Socket.IO (comma-separated), e.g. preview URL + production. */
+const extraAllowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 module.exports = {
   port: parseInt(process.env.PORT) || 8000,
   nodeEnv: process.env.NODE_ENV || 'development',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
+  serveClientStatic,
+  extraAllowedOrigins,
 
   /** When true, Socket.IO rejects connections without a verified JWT */
   socketAuthRequired:
@@ -40,6 +59,11 @@ module.exports = {
 
   redisUrl: process.env.REDIS_URL || '',
 
+  /** Supabase project URL (https://<ref>.supabase.co) — used for JWT issuer + client config */
+  supabaseUrl: process.env.SUPABASE_URL || '',
+  supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET || '',
+
+  /** Legacy Neon / Stack Auth JWKS (optional if fully on Supabase) */
   neonJwks: process.env.NEON_JWKS,
   stackSecretKey: process.env.STACK_SECRET_SERVER_KEY,
 

@@ -1,6 +1,7 @@
 'use strict';
 
 process.env.DATABASE_URL ||= 'postgresql://localhost:5432/postgres';
+process.env.JWT_SECRET ||= 'test-secret-for-socket-guards';
 process.env.NEON_JWKS ||= 'https://example.com/.well-known/jwks.json';
 
 const { test } = require('node:test');

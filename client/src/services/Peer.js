@@ -24,7 +24,7 @@ const defaultIce = () => {
 
 const ICE_SERVERS = defaultIce();
 
-class PeerService {
+export class PeerService {
   constructor() {
     this._create();
   }
@@ -36,16 +36,12 @@ class PeerService {
     this._remoteDescriptionSet = false;
   }
 
-  // Subscribe to local ICE candidates. The handler receives the raw candidate
-  // object (safe to JSON-serialize) and should forward it over the signaling
-  // channel to the remote peer.
   onIceCandidate(handler) {
     this.peer.onicecandidate = (event) => {
       if (event.candidate) handler(event.candidate.toJSON());
     };
   }
 
-  // Subscribe to remote media tracks.
   onTrack(handler) {
     this.peer.ontrack = (event) => {
       const [stream] = event.streams;
@@ -53,9 +49,6 @@ class PeerService {
     };
   }
 
-  // Add all tracks of a MediaStream once. Repeated calls are safe and will
-  // skip tracks that were already added — this avoids the "senders are already
-  // associated with a track" error during renegotiation.
   addLocalStream(stream) {
     if (!stream) return;
     for (const track of stream.getTracks()) {
@@ -88,8 +81,6 @@ class PeerService {
 
   async addRemoteIceCandidate(candidate) {
     if (!candidate) return;
-    // Until a remote description is set, addIceCandidate throws. Queue and
-    // flush when the answer/offer arrives.
     if (!this._remoteDescriptionSet) {
       this._pendingRemoteCandidates.push(candidate);
       return;
@@ -125,5 +116,6 @@ class PeerService {
   }
 }
 
-const peer = new PeerService();
-export default peer;
+export function createPeerService() {
+  return new PeerService();
+}

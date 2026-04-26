@@ -1,3 +1,4 @@
+const fs = require('fs');
 const env = require('./config/env');
 const express = require('express');
 const http = require('http');
@@ -61,10 +62,19 @@ app.use('/api/questions', questionRoutes);
 app.use('/api/generate-questions', questionRoutes); // legacy alias
 app.use('/api/execute', executeRoutes);
 
-// Static React build
-app.use(express.static(path.join(__dirname, '../client/build')));
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
+// Static React build (optional — API-only Docker images skip this when no build is present)
+const clientBuildDir = path.join(__dirname, '../client/build');
+const clientIndex = path.join(clientBuildDir, 'index.html');
+const hasSpa = env.serveClientStatic && fs.existsSync(clientIndex);
+if (hasSpa) {
+  app.use(express.static(clientBuildDir));
+}
+// Do not use app.get('*') — it matches /socket.io and can break Engine.IO long-polling.
+app.get(/^\/(?!socket\.io).*/, (req, res, next) => {
+  if (hasSpa) {
+    return res.sendFile(clientIndex, (err) => (err ? next(err) : undefined));
+  }
+  res.status(404).json({ error: 'not_found', message: 'No static app or handler for this path' });
 });
 
 app.use(errorHandler);

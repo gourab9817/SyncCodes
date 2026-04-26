@@ -1,15 +1,16 @@
-# SyncCodes — production compose
+# SyncCodes — production compose (EC2 / VPS / single host)
 #
 # Setup:
-#   1. Ensure backend/.env exists and contains real values.
-#      IMPORTANT: never commit secrets.
-#   2. Set CLIENT_URL in backend/.env to your actual domain (e.g. https://synccodes.com).
-#   3. docker compose -f docker-compose.prod.yml up -d --build
+#   1. Ensure backend/.env exists with real secrets (never commit it).
+#   2. Set CLIENT_URL (and optional ALLOWED_ORIGINS) to your public site origin, e.g. https://app.example.com
+#      so CORS and Socket.IO accept browser requests (Nginx serves SPA on port 80).
+#   3. Migrations (one-off or CI): docker compose -f docker-compose.prod.yml run --rm backend npx prisma migrate deploy
+#   4. docker compose -f docker-compose.prod.yml up -d --build
 #
-# Code execution:
-#   This compose includes a Piston service for sandboxed code execution.
-#   Install language runtimes after first start (see docker-compose.execution.yml for details).
-#   EXECUTION_BACKEND is forced to "piston" below — local executor is blocked in production.
+# EC2: open security group for 80 (and 443 if you terminate TLS on the host). Prefer an ALB for HTTPS.
+#
+# Code execution: Piston is on the internal network only (never publish 2000). Install language
+# packages after first boot (see docker-compose.execution.yml). EXECUTION_BACKEND=piston is forced below.
 
 services:
 
@@ -37,6 +38,24 @@ services:
     restart: unless-stopped
     networks:
       - internal
+    # Required on many Linux hosts for Piston sandboxes (see upstream Piston docs).
+    privileged: true
+    tmpfs:
+      - /tmp:exec
+    volumes:
+      - piston-packages:/piston/packages
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://127.0.0.1:2000/api/v2/runtimes',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 5
     # Install language packages after first boot:
     #   docker exec syncodes-piston bash -c "cd /piston && node repo pkgman install python 3.10.0"
     #   docker exec syncodes-piston bash -c "cd /piston && node repo pkgman install javascript 18.15.0"
@@ -65,9 +84,9 @@ services:
       redis:
         condition: service_healthy
       piston:
-        condition: service_started
-    expose:
-      - "8000"
+        condition: service_healthy
+    ports:
+      - "80:8000"    # Frontend is on Vercel; expose backend directly on port 80
     networks:
       - internal
     healthcheck:
@@ -77,25 +96,6 @@ services:
       start_period: 20s
       retries: 5
 
-  # ── Nginx — static SPA + reverse proxy ────────────────────────────────────
-  web:
-    build:
-      context: .
-      dockerfile: client/Dockerfile.prod
-      args:
-        # "/" means the browser calls the same origin for API — Nginx proxies it
-        REACT_APP_API_URL: /
-    image: syncodes-web:latest
-    container_name: syncodes-web
-    restart: unless-stopped
-    depends_on:
-      backend:
-        condition: service_healthy
-    ports:
-      - "80:80"
-    networks:
-      - internal
-
 networks:
   # All services communicate on an isolated internal network.
   # Only the `web` service exposes a port to the host.
@@ -104,3 +104,4 @@ networks:
 
 volumes:
   redis-data:
+  piston-packages:

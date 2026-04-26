@@ -58,7 +58,6 @@ html { font-family: 'Inter', sans-serif; scroll-behavior: smooth; }
 body {
   background: var(--bg);
   color: var(--text);
-  transition: background .25s, color .25s;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -92,8 +91,16 @@ code, pre, .font-mono {
   50%       { opacity: .5; }
 }
 
-.animate-fade-in { animation: fadeIn .2s ease both; }
-.animate-slide-in { animation: slideIn .2s ease both; }
+.animate-fade-in { animation: fadeIn .2s ease-out both; }
+.animate-slide-in { animation: slideIn .2s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
 
 /* ── Card ── */
 .sc-card {
@@ -114,7 +121,7 @@ code, pre, .font-mono {
   font-size: .875rem;
   font-weight: 600;
   cursor: pointer;
-  transition: opacity .15s, transform .1s, box-shadow .15s;
+  transition: opacity .15s, transform .1s;
   border: none;
   outline: none;
   text-decoration: none;
@@ -148,3 +155,336 @@ code, pre, .font-mono {
   box-shadow: 0 0 0 3px rgba(255, 107, 91, .15);
 }
 .sc-input::placeholder { color: var(--text3); }
+
+/* ── Responsive Nav ── */
+.nav-desktop-links { display: flex; }
+.nav-hamburger { display: none; }
+.nav-new-session-label { display: inline; }
+
+@media (max-width: 767px) {
+  .nav-desktop-links { display: none !important; }
+  .nav-hamburger { display: flex !important; align-items: center; }
+  .nav-new-session-label { display: none; }
+}
+
+/* ── Mobile nav drawer ── */
+.nav-mobile-drawer {
+  position: absolute;
+  left: 0; right: 0; top: 60px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  padding: 8px 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: slideDown .18s ease both;
+  z-index: 99;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ── Page content ── */
+.page-content {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+@media (max-width: 640px) {
+  .page-content { padding: 20px 16px; }
+}
+
+/* Reserve space under main room content for floating meeting controls (not full-width bar) */
+:root {
+  /* One row of 44px buttons + pill padding + gap under header */
+  --room-bottom-controls: 100px;
+}
+@media (max-width: 520px) {
+  :root {
+    /* Wrapped controls (smaller buttons, two rows possible) */
+    --room-bottom-controls: 124px;
+  }
+}
+
+/* Main stage: keep video + docked chat above the floating control pill */
+.room-main-stage {
+  flex: 1;
+  min-height: 0;
+  max-height: calc(100dvh - 56px - var(--room-bottom-controls));
+  height: calc(100dvh - 56px - var(--room-bottom-controls));
+}
+
+/* ── Room controls: compact floating pill (width = buttons only) ── */
+.room-controls-bar {
+  position: fixed;
+  bottom: max(10px, env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100vw - 20px);
+  margin: 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 4px 24px rgba(0,0,0,.12);
+  padding: 8px 12px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  z-index: 120;
+  box-sizing: border-box;
+}
+
+@media (max-width: 520px) {
+  .room-controls-bar {
+    gap: 5px;
+    padding: 6px 10px;
+    padding-bottom: max(6px, env(safe-area-inset-bottom, 0px));
+    border-radius: 22px;
+    max-width: calc(100vw - 12px);
+  }
+}
+
+.ctrl-btn {
+  display: flex; align-items: center; justify-content: center;
+  border: none; cursor: pointer; border-radius: 50%;
+  transition: opacity .15s, transform .1s, background .15s;
+  flex-shrink: 0;
+  width: 44px; height: 44px;
+}
+.ctrl-btn:hover { opacity: .85; transform: scale(1.05); }
+.ctrl-btn:active { transform: scale(.97); }
+
+@media (max-width: 480px) {
+  .ctrl-btn { width: 38px; height: 38px; }
+}
+
+.ctrl-divider {
+  width: 1px; height: 28px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+@media (max-width: 480px) {
+  .ctrl-divider { display: none; }
+}
+
+/* ── Chat dock ── */
+.room-chat-dock {
+  display: none;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 340px;
+  min-width: 0;
+  min-height: 0;
+  max-height: 100%;
+  align-self: stretch;
+  overflow: hidden;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+}
+.room-chat-dock.open {
+  display: flex;
+}
+.room-chat-dock-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.room-chat-dock-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+@media (max-width: 768px) {
+  .room-chat-dock.open {
+    position: fixed;
+    top: 56px;
+    left: 0;
+    right: 0;
+    bottom: max(calc(var(--room-bottom-controls) + 8px), env(safe-area-inset-bottom, 0px));
+    width: 100%;
+    max-height: none;
+    border-radius: 0;
+    z-index: 110;
+  }
+}
+
+@media (min-width: 769px) {
+  .room-main-stage.chat-docked .room-chat-dock.open {
+    max-width: min(380px, 38vw);
+  }
+}
+
+/* Chat composer: lift above device home indicator; subtle bar so it doesn’t blend into video */
+.chat-panel-composer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  padding-bottom: max(12px, calc(env(safe-area-inset-bottom, 0px) + 8px));
+  box-shadow: 0 -6px 16px rgba(0, 0, 0, 0.06);
+}
+
+.dark .chat-panel-composer {
+  box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.25);
+}
+
+/* ── Room video matrix (columns/rows set in Room.jsx for participant count) ── */
+.room-video-matrix {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  gap: 10px;
+  flex: 1;
+}
+
+.room-video-cell {
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Legacy class kept for safety — layout is driven by .room-video-matrix + inline grid */
+.room-video-grid {
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Room main layout ── */
+.room-layout {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  gap: 10px;
+  transition: flex-direction 0.25s ease, gap 0.25s ease;
+}
+
+/* Editor open: Meet-style — video rail on top, editor takes remaining height */
+.room-layout.editor-open {
+  flex-direction: column;
+}
+
+.room-video-col {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  transition: flex 0.25s ease, max-height 0.25s ease;
+}
+
+.room-layout.editor-open .room-video-col {
+  flex: 0 0 auto;
+  max-height: min(240px, 32dvh);
+  min-height: clamp(120px, 22dvh, 220px);
+}
+
+.room-editor-col {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 640px) {
+  .room-layout.editor-open .room-video-col {
+    max-height: min(200px, 36dvh);
+    min-height: 100px;
+  }
+}
+
+/* ── Stat grid ── */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+@media (max-width: 480px) {
+  .stat-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+}
+
+/* ── Quick actions grid ── */
+.quick-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+@media (max-width: 480px) {
+  .quick-actions-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+}
+
+/* ── Lobby grid ── */
+.lobby-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  gap: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.lobby-features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 20px;
+}
+
+/* ── Session card ── */
+.session-card-meta {
+  display: flex; gap: 12px; flex-wrap: wrap;
+}
+@media (max-width: 480px) {
+  .session-card-meta span:last-child { display: none; }
+}
+
+/* ── Room header ── */
+.room-session-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+@media (max-width: 480px) {
+  .room-session-info { display: none; }
+}
+
+/* ── Badge ── */
+.room-user-badge {
+  display: flex; align-items: center; gap: 6px;
+}
+@media (max-width: 500px) {
+  .room-user-badge { display: none; }
+}

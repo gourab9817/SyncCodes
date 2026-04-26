@@ -66,6 +66,19 @@ function assertSocketInRoom(socket, roomId) {
   return 'not_in_room';
 }
 
+/** Everyone-chat: live session room or waiting lobby for the same canonical room. */
+function canSendRoomChat(socket, canonicalRoomId) {
+  if (!canonicalRoomId) return false;
+  if (assertSocketInRoom(socket, canonicalRoomId) == null) return true;
+  if (socket.data.pendingAdmissionRoomId === canonicalRoomId) return true;
+  return false;
+}
+
+/** Private / E2E: only admitted participants (in the Socket.IO session room). */
+function canSendPrivateChat(socket, canonicalRoomId) {
+  return assertSocketInRoom(socket, canonicalRoomId) == null;
+}
+
 /**
  * Checks that the sender (socket) and the target socketId share at least one
  * room. Prevents cross-room code pushes (e.g. sync:code, yjs:sync-response).
@@ -108,6 +121,8 @@ function validateYjsState(state) {
 module.exports = {
   createSlidingWindowLimiter,
   assertSocketInRoom,
+  canSendRoomChat,
+  canSendPrivateChat,
   assertTargetInSameRoom,
   assertAuthenticated,
   validateYjsUpdate,

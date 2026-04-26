@@ -9,6 +9,7 @@ const env = require('./env');
 function isOriginAllowed(origin) {
   if (!origin) return true;
   if (origin === env.clientUrl) return true;
+  if (env.extraAllowedOrigins?.includes(origin)) return true;
   if (env.nodeEnv !== 'production') {
     if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) {
       return true;

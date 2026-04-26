@@ -1,6 +1,11 @@
 const prisma = require('../../config/db');
 const logger = require('../../utils/logger');
-const { assertSocketInRoom, assertAuthenticated, yjsUpdateLimiter } = require('../socketGuards');
+const {
+  canSendRoomChat,
+  canSendPrivateChat,
+  assertAuthenticated,
+  yjsUpdateLimiter,
+} = require('../socketGuards');
 
 async function resolveRoom(roomKey) {
   const raw = String(roomKey || '').trim();
@@ -13,55 +18,90 @@ async function resolveRoom(roomKey) {
   });
 }
 
+function waitingRoomKey(canonicalRoomId) {
+  return `waiting:${canonicalRoomId}`;
+}
+
 module.exports = (io, socket) => {
-  socket.on('message:send', async ({ roomId: roomKey, content, encryptedContent, iv, recipientKeys }) => {
+  socket.on('message:send', async (payload) => {
     try {
       const authErr = assertAuthenticated(socket);
       if (authErr) return;
       if (!socket.userId) return;
       if (!yjsUpdateLimiter.allow(socket.id)) return;
 
-      const isEncrypted = !!(encryptedContent && iv && recipientKeys);
-      const rawContent = isEncrypted ? encryptedContent : content?.trim();
-      if (!rawContent) return;
+      const {
+        roomId: roomKey,
+        content,
+        scope,
+        threadId: rawThreadId,
+      } = payload || {};
 
       const room = await resolveRoom(roomKey);
       if (!room) return;
 
-      const inRoomErr = assertSocketInRoom(socket, room.id);
-      if (inRoomErr) return;
+      const scopeNorm = String(scope || 'ROOM').toUpperCase() === 'PRIVATE' ? 'PRIVATE' : 'ROOM';
+
+      if (scopeNorm === 'ROOM') {
+        if (!canSendRoomChat(socket, room.id)) return;
+      } else if (!canSendPrivateChat(socket, room.id)) {
+        return;
+      }
+
+      let participantIds = null;
+      let threadIdForMsg = null;
+
+      if (scopeNorm === 'PRIVATE') {
+        const tid = rawThreadId != null ? String(rawThreadId).trim() : '';
+        if (!tid) return;
+        const thread = await prisma.chatThread.findFirst({
+          where: { id: tid, roomId: room.id },
+          include: { members: { select: { userId: true } } },
+        });
+        if (!thread) return;
+        participantIds = thread.members.map((m) => m.userId);
+        if (!participantIds.includes(socket.userId)) return;
+        threadIdForMsg = thread.id;
+      }
+
+      const plain = typeof content === 'string' ? content.trim() : '';
+      if (!plain) return;
+      const finalContent = plain.slice(0, 20000);
 
       const message = await prisma.message.create({
         data: {
-          content: rawContent.slice(0, 20000),
-          iv: isEncrypted ? iv : null,
-          recipientKeys: isEncrypted ? recipientKeys : null,
-          encrypted: isEncrypted,
+          content: finalContent,
+          encrypted: false,
           userId: socket.userId,
           roomId: room.id,
+          scope: scopeNorm,
+          threadId: threadIdForMsg,
         },
-        include: { user: { select: { id: true, name: true, avatar: true, publicKey: true } } },
+        include: { user: { select: { id: true, name: true, avatar: true } } },
       });
 
-      io.to(room.id).emit('message:new', message);
+      if (threadIdForMsg) {
+        try {
+          await prisma.chatThread.update({
+            where: { id: threadIdForMsg },
+            data: { updatedAt: new Date() },
+          });
+        } catch (e) {
+          logger.warn(`chatThread touch skipped: ${e.message}`);
+        }
+      }
+
+      if (scopeNorm === 'ROOM') {
+        io.to(room.id).emit('message:new', message);
+        io.to(waitingRoomKey(room.id)).emit('message:new', message);
+      } else {
+        for (const uid of participantIds) {
+          io.to(`user:${uid}`).emit('message:new', message);
+          io.to(`user:${uid}`).emit('chat:threads:refresh', { roomId: room.id });
+        }
+      }
     } catch (err) {
       logger.error('message:send error', err);
-    }
-  });
-
-  // When a user registers/updates their E2E public key, broadcast it to every
-  // room they're currently in. Fixes the race where a peer joined before
-  // registering their key, so the `user:joined` event carried publicKey=null
-  // and the other clients never learned of it — causing their subsequent
-  // encrypted messages to lack a wrapped key for that peer.
-  socket.on('chat:publicKey:broadcast', ({ publicKey }) => {
-    if (!socket.userId) return;
-    if (typeof publicKey !== 'string' || !publicKey || publicKey.length > 1000) return;
-    for (const roomId of socket.data.joinedRooms || []) {
-      socket.to(roomId).emit('chat:publicKey:update', {
-        userId: socket.userId,
-        publicKey,
-      });
     }
   });
 };

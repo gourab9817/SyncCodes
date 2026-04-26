@@ -3,13 +3,19 @@
   "version": "1.0.0",
   "description": "",
   "main": "server.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
+    "build": "prisma generate",
     "test": "node --test test/*.test.js",
-    "start": "nodemon server.js",
+    "dev": "nodemon server.js",
+    "start": "node server.js",
     "start:prod": "node server.js",
-    "db:migrate": "npx prisma migrate dev",
-    "db:generate": "npx prisma generate",
-    "db:studio": "npx prisma studio"
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio"
   },
   "author": "",
   "license": "ISC",
@@ -17,9 +23,10 @@
     "@google/generative-ai": "^0.21.0",
     "@prisma/client": "^5.22.0",
     "@socket.io/redis-adapter": "^8.3.0",
-    "axios": "^1.7.9",
+    "axios": "^1.15.2",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-rate-limit": "^8.4.0",

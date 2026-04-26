@@ -2,7 +2,7 @@
   "name": "project1",
   "version": "0.1.0",
   "private": true,
-  "proxy": "http://localhost:8000",                                                                                                                                                                         
+  "proxy": "http://localhost:8000",
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
@@ -13,6 +13,7 @@
     "@mui/material": "^6.3.0",
     "@react-hook/resize-observer": "^2.0.2",
     "@stackframe/stack": "^2.8.85",
+    "@supabase/supabase-js": "^2.104.1",
     "@vercel/analytics": "^1.5.0",
     "axios": "^1.7.9",
     "codemirror": "^5.65.18",

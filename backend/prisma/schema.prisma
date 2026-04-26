@@ -11,6 +11,8 @@ generator client {
 model User {
   id            String    @id @default(cuid())
   stackAuthId   String?   @unique
+  /// Supabase Auth user id (`auth.users.id`, UUID in JWT `sub`)
+  supabaseUserId String?  @unique
   email         String    @unique
   name          String
   password      String?
@@ -20,9 +22,11 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  ownedRooms  Room[]          @relation("RoomOwner")
-  memberships SessionMember[]
-  messages    Message[]
+  ownedRooms           Room[]             @relation("RoomOwner")
+  memberships          SessionMember[]
+  messages             Message[]
+  chatThreadsCreated   ChatThread[]       @relation("ChatThreadCreator")
+  chatThreadMemberships ChatThreadMember[]
 }
 
 model Room {
@@ -38,19 +42,54 @@ model Room {
 
   memberships SessionMember[]
   messages    Message[]
+  chatThreads ChatThread[]
 }
 
 model SessionMember {
-  id       String    @id @default(cuid())
-  userId   String
-  roomId   String
-  joinedAt DateTime  @default(now())
-  leftAt   DateTime?
+  id         String    @id @default(cuid())
+  userId     String
+  roomId     String
+  joinedAt   DateTime  @default(now())
+  leftAt     DateTime?
+  /// Set when the host admits this socket into the live session (waiting lobby cleared).
+  admittedAt DateTime?
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  room     Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
   @@unique([userId, roomId])
+  @@index([roomId, leftAt])
+}
+
+/// Named private side-conversation inside a room (multi-select participants = one group).
+model ChatThread {
+  id          String   @id @default(cuid())
+  roomId      String
+  createdById String
+  title       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  room      Room               @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  createdBy User               @relation("ChatThreadCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  members   ChatThreadMember[]
+  messages  Message[]
+
+  @@index([roomId, updatedAt])
+}
+
+model ChatThreadMember {
+  id       String   @id @default(cuid())
+  threadId String
+  userId   String
+  joinedAt DateTime @default(now())
+
+  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, userId])
+  @@index([userId])
+  @@index([userId, threadId])
 }
 
 model Message {
@@ -62,8 +101,20 @@ model Message {
   userId        String
   roomId        String
   createdAt     DateTime @default(now())
+  /// ROOM = everyone in session; PRIVATE = only users in dmThreadKey
+  scope         String   @default("ROOM")
+  /// Sorted user ids joined by "|", same for one thread; null when scope is ROOM
+  dmThreadKey   String?
+  /// First-class private group (preferred over dmThreadKey for new clients).
+  threadId      String?
+  thread        ChatThread? @relation(fields: [threadId], references: [id], onDelete: Cascade)
 
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  room          Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, scope, dmThreadKey])
+  @@index([roomId, threadId])
+  @@index([roomId, scope, createdAt(sort: Desc)])
+  @@index([threadId, createdAt(sort: Desc)])
 }
 
