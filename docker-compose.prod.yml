@@ -1,16 +1,4 @@
 # SyncCodes — production compose (EC2 / VPS / single host)
-#
-# Setup:
-#   1. Ensure backend/.env exists with real secrets (never commit it).
-#   2. Set CLIENT_URL (and optional ALLOWED_ORIGINS) to your public site origin, e.g. https://app.example.com
-#      so CORS and Socket.IO accept browser requests (Nginx serves SPA on port 80).
-#   3. Migrations (one-off or CI): docker compose -f docker-compose.prod.yml run --rm backend npx prisma migrate deploy
-#   4. docker compose -f docker-compose.prod.yml up -d --build
-#
-# EC2: open security group for 80 (and 443 if you terminate TLS on the host). Prefer an ALB for HTTPS.
-#
-# Code execution: Piston is on the internal network only (never publish 2000). Install language
-# packages after first boot (see docker-compose.execution.yml). EXECUTION_BACKEND=piston is forced below.
 
 services:
 
@@ -31,14 +19,12 @@ services:
       retries: 5
 
   # ── Piston — sandboxed code execution ──────────────────────────────────────
-  # Never expose port 2000 to the public internet. It is internal-only.
   piston:
     image: ghcr.io/engineer-man/piston:latest
     container_name: syncodes-piston
     restart: unless-stopped
     networks:
       - internal
-    # Required on many Linux hosts for Piston sandboxes (see upstream Piston docs).
     privileged: true
     tmpfs:
       - /tmp:exec
@@ -56,10 +42,6 @@ services:
       timeout: 10s
       start_period: 60s
       retries: 5
-    # Install language packages after first boot:
-    #   docker exec syncodes-piston bash -c "cd /piston && node repo pkgman install python 3.10.0"
-    #   docker exec syncodes-piston bash -c "cd /piston && node repo pkgman install javascript 18.15.0"
-    # See https://github.com/engineer-man/piston for full package list.
 
   # ── Backend API + Socket.IO ─────────────────────────────────────────────────
   backend:
@@ -70,13 +52,12 @@ services:
     container_name: syncodes-backend
     restart: unless-stopped
     env_file:
-      - ./backend/.env     # contains DATABASE_URL, JWT_SECRET, GEMINI_API_KEY, etc.
+      - ./backend/.env
     environment:
       NODE_ENV: production
       PORT: "8000"
       SOCKET_AUTH_REQUIRED: "true"
       REDIS_URL: redis://redis:6379
-      # Code execution — always use Piston in production (local is blocked)
       EXECUTION_BACKEND: piston
       EXECUTION_REQUIRE_AUTH: "true"
       PISTON_API_URL: http://piston:2000
@@ -85,8 +66,8 @@ services:
         condition: service_healthy
       piston:
         condition: service_healthy
-    ports:
-      - "80:8000"    # Frontend is on Vercel; expose backend directly on port 80
+    expose:
+      - "8000"
     networks:
       - internal
     healthcheck:
@@ -96,9 +77,24 @@ services:
       start_period: 20s
       retries: 5
 
+  # ── Nginx — SSL termination + reverse proxy to backend ────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: syncodes-nginx
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/api.conf:/etc/nginx/conf.d/default.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    networks:
+      - internal
+
 networks:
-  # All services communicate on an isolated internal network.
-  # Only the `web` service exposes a port to the host.
   internal:
     driver: bridge
 
