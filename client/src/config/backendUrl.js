@@ -24,7 +24,10 @@ export function getBackendBaseUrl() {
       const proto = window.location.protocol || "http:";
       return `${proto}//${h}:8000`;
     }
-    return window.location.origin;
+    // Production fallback: if REACT_APP_API_URL wasn't baked into the build,
+    // route to the api subdomain rather than the same origin (which would hit
+    // the static host and 404 every API call).
+    return `${window.location.protocol}//api.${h.replace(/^www\./, "")}`;
   }
   if (typeof process !== "undefined" && process.env?.NODE_ENV === "development") {
     return "http://localhost:8000";

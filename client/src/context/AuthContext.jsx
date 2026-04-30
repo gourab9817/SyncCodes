@@ -31,69 +31,78 @@ export const AuthProvider = ({ children }) => {
     else localStorage.removeItem('sc_user');
   }, [user]);
 
-  // On mount: restore session from Supabase or stored app JWT
+  // Single source of truth: Supabase onAuthStateChange. INITIAL_SESSION fires
+  // on mount (with the existing session if any) so we don't need a separate
+  // getSession() call. Falls back to legacy app JWT only when Supabase isn't configured.
   useEffect(() => {
     let cancelled = false;
+    let lastTokenHandled = null;
 
-    (async () => {
-      if (supabase) {
-        const { data } = await supabase.auth.getSession();
-        if (!cancelled && data.session?.access_token) {
-          try {
-            const profile = await fetchProfile(data.session.access_token);
-            if (!cancelled) setUser(profile);
-          } catch {
-            if (!cancelled) {
-              localStorage.removeItem('sc_user');
-              setUser(null);
-            }
-          }
-          if (!cancelled) setLoading(false);
-          return;
-        }
-      }
-
+    if (!supabase) {
+      // Legacy email/password JWT path
       const legacy = getStoredAccessToken();
-      if (legacy) {
-        try {
-          const profile = await fetchProfile(legacy);
-          if (!cancelled) setUser(profile);
-        } catch {
+      if (!legacy) { setLoading(false); return; }
+      fetchProfile(legacy)
+        .then((profile) => { if (!cancelled) setUser(profile); })
+        .catch(() => {
           if (!cancelled) {
             clearStoredAccessToken();
             localStorage.removeItem('sc_user');
             setUser(null);
           }
-        }
-      }
-      if (!cancelled) setLoading(false);
-    })();
+        })
+        .finally(() => { if (!cancelled) setLoading(false); });
+      return () => { cancelled = true; };
+    }
 
-    return () => { cancelled = true; };
-  }, []);
-
-  // Keep user in sync with Supabase auth state changes
-  useEffect(() => {
-    if (!supabase) return undefined;
     const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (cancelled) return;
+
       if (event === 'SIGNED_OUT') {
         setUser(null);
         localStorage.removeItem('sc_user');
+        lastTokenHandled = null;
+        setLoading(false);
         return;
       }
-      if (
-        session?.access_token &&
-        (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION' || event === 'USER_UPDATED')
-      ) {
-        try {
-          const profile = await fetchProfile(session.access_token);
-          setUser(profile);
-        } catch {
-          /* profile sync failed */
+
+      const token = session?.access_token || null;
+
+      if (!token) {
+        // No session (e.g. INITIAL_SESSION with no logged-in user)
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
+      // Skip duplicate events for the same token (StrictMode, multiple INITIAL_SESSION etc.)
+      if (token === lastTokenHandled) {
+        setLoading(false);
+        return;
+      }
+      lastTokenHandled = token;
+
+      try {
+        const profile = await fetchProfile(token);
+        if (!cancelled) setUser(profile);
+      } catch (err) {
+        if (!cancelled) {
+          console.error('[AuthContext] profile fetch failed:', err.response?.status, err.message);
+          // Don't clear localStorage on transient errors — only on auth failures
+          if (err.response?.status === 401) {
+            setUser(null);
+            localStorage.removeItem('sc_user');
+          }
         }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     });
-    return () => sub.subscription.unsubscribe();
+
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
+    };
   }, []);
 
   const value = useMemo(
