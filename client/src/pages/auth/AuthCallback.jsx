@@ -1,92 +1,51 @@
 import React, { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import { getBackendBaseUrl } from '../../config/backendUrl';
+import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../utils/supabaseClient';
-
-const API_URL = getBackendBaseUrl();
 
 const AuthCallback = () => {
   const navigate = useNavigate();
-  const doneRef = useRef(false);
+  const { user, loading } = useAuth();
+  const navigatedRef = useRef(false);
+  const timedOutRef = useRef(false);
 
+  // Check for OAuth error params on mount
   useEffect(() => {
     if (!supabase) {
-      console.error('[AuthCallback] Supabase client not initialised — check REACT_APP_SUPABASE_URL / REACT_APP_SUPABASE_ANON_KEY');
       navigate('/login?error=supabase_not_configured', { replace: true });
       return;
     }
-
-    // Check for error params forwarded by Supabase or Google
     const params = new URLSearchParams(window.location.search);
-    const oauthError = params.get('error') || params.get('error_description');
+    const oauthError = params.get('error_description') || params.get('error');
     if (oauthError) {
-      console.error('[AuthCallback] OAuth error param:', oauthError);
       navigate(`/login?error=${encodeURIComponent(oauthError)}`, { replace: true });
-      return;
     }
+  }, [navigate]);
 
-    const finish = async (session) => {
-      if (doneRef.current) return;
-      doneRef.current = true;
+  // Navigate when AuthContext has finished setting the user
+  useEffect(() => {
+    if (navigatedRef.current || timedOutRef.current) return;
+    if (!loading && user) {
+      navigatedRef.current = true;
+      navigate('/dashboard', { replace: true });
+    }
+  }, [user, loading, navigate]);
 
-      console.log('[AuthCallback] session received, fetching profile…');
-      try {
-        const res = await axios.get(`${API_URL}/api/users/me`, {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        });
-        localStorage.setItem('sc_user', JSON.stringify(res.data));
-        console.log('[AuthCallback] profile OK, navigating to dashboard');
-        navigate('/dashboard', { replace: true });
-      } catch (err) {
-        const status = err.response?.status;
-        const msg = err.response?.data?.error || err.message;
-        console.error(`[AuthCallback] /api/users/me failed (${status}):`, msg);
-        navigate(`/login?error=${encodeURIComponent(msg || 'profile_fetch_failed')}`, { replace: true });
-      }
-    };
-
-    // 1) Listen for SIGNED_IN — fires once the PKCE code exchange completes.
-    //    With flowType:'pkce' + detectSessionInUrl:true the Supabase client picks
-    //    up ?code= from the URL and exchanges it async; this event fires when done.
-    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log('[AuthCallback] onAuthStateChange event:', event, '| has session:', !!session);
-      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
-        finish(session);
-      }
-    });
-
-    // 2) Fallback: exchange might have already completed before this component
-    //    mounted (e.g. React StrictMode double-invocation or fast machines).
-    supabase.auth.getSession().then(({ data, error }) => {
-      console.log('[AuthCallback] getSession result — session:', !!data?.session, '| error:', error?.message ?? 'none');
-      if (data?.session) {
-        finish(data.session);
-      }
-    });
-
-    // 3) Hard timeout — if neither path resolves in 12 s something is broken.
-    const timer = setTimeout(() => {
-      if (!doneRef.current) {
-        doneRef.current = true;
-        console.error('[AuthCallback] timed out waiting for Supabase session');
+  // 15s safety timeout — if AuthContext never resolves, kick back to login
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (!navigatedRef.current) {
+        timedOutRef.current = true;
         navigate('/login?error=auth_timeout', { replace: true });
       }
-    }, 12000);
-
-    return () => {
-      sub.subscription.unsubscribe();
-      clearTimeout(timer);
-    };
+    }, 15000);
+    return () => clearTimeout(t);
   }, [navigate]);
 
   return (
     <div style={{
-      minHeight: '100vh',
-      background: 'var(--bg)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
+      minHeight: '100vh', background: 'var(--bg)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
     }}>
       <div style={{ textAlign: 'center' }}>
         <div style={{
